@@ -51,6 +51,8 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -67,6 +69,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -90,6 +93,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyOff
@@ -110,6 +114,9 @@ import com.example.ui.components.ExecutiveContactsView
 import com.example.ui.components.GroupExportSection
 import com.example.ui.components.LanguageToggleHeader
 import com.example.ui.components.MultiDateAnalyticsDialog
+import com.example.ui.components.SupabaseSyncManagementDialog
+import com.example.ui.components.AdminSystemSettingsDialog
+import androidx.compose.material.icons.filled.Settings
 import com.example.ui.theme.AbsentRed
 import com.example.ui.theme.AbsentRedContainer
 import com.example.ui.theme.ExcusedBlue
@@ -131,6 +138,7 @@ fun AdminDashboardScreen(
     val selectedDate by viewModel.selectedDate.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val currentThemePreset by viewModel.themePreset.collectAsState()
+    val leaderAttendanceVisible by viewModel.leaderAttendanceVisible.collectAsState()
 
     val groups by viewModel.groups.collectAsState()
     val users by viewModel.users.collectAsState()
@@ -163,6 +171,8 @@ fun AdminDashboardScreen(
     var showDutyGroupDialog by remember { mutableStateOf(false) }
     var showMultiDateAnalyticsDialog by remember { mutableStateOf(false) }
     var multiDateAnalyticsGroupId by remember { mutableStateOf(0L) }
+    var showSupabaseSyncDialog by remember { mutableStateOf(false) }
+    var showAdminSystemSettingsDialog by remember { mutableStateOf(false) }
 
     var aiCustomPrompt by remember { mutableStateOf("") }
     var isAiGenerating by remember { mutableStateOf(false) }
@@ -188,7 +198,7 @@ fun AdminDashboardScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    // Header Row: Admin Title & Global controls
+                    // Header Row: Admin Title & Logout button
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -204,46 +214,47 @@ fun AdminDashboardScreen(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            // Cycle theme button
+                            val allSessions by viewModel.allDeviceSessions.collectAsState()
                             IconButton(
-                                onClick = { viewModel.cycleTheme() },
-                                modifier = Modifier.size(36.dp).testTag("admin_cycle_theme")
+                                onClick = { showAdminSystemSettingsDialog = true },
+                                modifier = Modifier.size(38.dp).testTag("admin_system_settings_button")
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.ColorLens,
-                                    contentDescription = s.switchTheme,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                BadgedBox(
+                                    badge = {
+                                        if (allSessions.isNotEmpty()) {
+                                            Badge(
+                                                containerColor = MaterialTheme.colorScheme.primary,
+                                                contentColor = MaterialTheme.colorScheme.onPrimary
+                                            ) {
+                                                Text(
+                                                    text = "${allSessions.size}",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = "سىستېما ۋە تېلېفون تەڭشىكى",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
                             }
 
-                            // Dark / Light Mode Toggle
-                            IconButton(
-                                onClick = { viewModel.toggleDarkMode() },
-                                modifier = Modifier.size(36.dp).testTag("admin_dark_mode_toggle")
-                            ) {
-                                Icon(
-                                    imageVector = if (isDarkMode) Icons.Default.LightMode else Icons.Default.DarkMode,
-                                    contentDescription = if (isDarkMode) s.lightMode else s.darkMode,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            LanguageToggleHeader(
-                                currentLanguage = language,
-                                onToggle = { viewModel.toggleLanguage() }
-                            )
+                            Spacer(modifier = Modifier.width(4.dp))
 
                             IconButton(
                                 onClick = { viewModel.logout(0L) },
-                                modifier = Modifier.size(36.dp).testTag("admin_logout_button")
+                                modifier = Modifier.size(38.dp).testTag("admin_logout_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ExitToApp,
                                     contentDescription = s.logoutButton,
                                     tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
@@ -290,13 +301,13 @@ fun AdminDashboardScreen(
                     onClick = { selectedTab = 2 },
                     icon = {
                         Icon(
-                            imageVector = Icons.Default.AdminPanelSettings,
+                            imageVector = Icons.Default.Settings,
                             contentDescription = s.adminSettingsTitle,
                             modifier = Modifier.size(24.dp)
                         )
                     },
                     alwaysShowLabel = false,
-                    modifier = Modifier.testTag("tab_group_leads")
+                    modifier = Modifier.testTag("tab_settings_gear")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 3,
@@ -463,14 +474,19 @@ fun AdminDashboardScreen(
 
                                     Spacer(modifier = Modifier.height(14.dp))
 
-                                    // 3 Mini Badges (Present, Absent, Excused) - NO LATE
+                                    val totalConsidered = (totalPresent + totalAbsent + totalExcused).coerceAtLeast(totalMembers)
+                                    val presentPct = if (totalConsidered > 0) (totalPresent.toFloat() / totalConsidered) * 100f else 0f
+                                    val absentPct = if (totalConsidered > 0) (totalAbsent.toFloat() / totalConsidered) * 100f else 0f
+                                    val excusedPct = if (totalConsidered > 0) (totalExcused.toFloat() / totalConsidered) * 100f else 0f
+
+                                    // 3 Mini Badges (Present, Absent, Excused) with Counts and Percentages
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        MiniStatBadge(s.statusPresent, totalPresent.toString(), PresentGreenContainer, PresentGreen)
-                                        MiniStatBadge(s.statusAbsent, totalAbsent.toString(), AbsentRedContainer, AbsentRed)
-                                        MiniStatBadge(s.statusExcused, totalExcused.toString(), ExcusedBlueContainer, ExcusedBlue)
+                                        MiniStatBadge(s.statusPresent, "$totalPresent (${String.format(Locale.US, "%.0f%%", presentPct)})", PresentGreenContainer, PresentGreen)
+                                        MiniStatBadge(s.statusAbsent, "$totalAbsent (${String.format(Locale.US, "%.0f%%", absentPct)})", AbsentRedContainer, AbsentRed)
+                                        MiniStatBadge(s.statusExcused, "$totalExcused (${String.format(Locale.US, "%.0f%%", excusedPct)})", ExcusedBlueContainer, ExcusedBlue)
                                     }
                                 }
                             }
@@ -544,9 +560,9 @@ fun AdminDashboardScreen(
 
                                     Spacer(modifier = Modifier.height(10.dp))
 
-                                    // Quick Switch Chips for all 6 main groups (1-تەلەپ: قايسى چوڭ گۇرۇپپا تاللانسا شۇنىڭ مەلۇماتى دەرھال چىقىدۇ)
+                                    // Quick Switch Chips for all 6 Bayraqs & Sanjaqs
                                     Text(
-                                        text = s.switchDutyMainGroup + ":",
+                                        text = "نۆۋەتچى بايراق ۋە سانجاقلارنى تاللاش:",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
@@ -617,7 +633,7 @@ fun AdminDashboardScreen(
                                                             color = MaterialTheme.colorScheme.onPrimaryContainer
                                                         )
                                                         Text(
-                                                            text = dutyAttendanceSummary.dutySubGroupName.ifBlank { s.subGroup1 },
+                                                            text = dutyAttendanceSummary.dutySubGroupName.ifBlank { "1-سانجاق" },
                                                             style = MaterialTheme.typography.titleSmall,
                                                             fontWeight = FontWeight.Black,
                                                             color = MaterialTheme.colorScheme.primary
@@ -660,14 +676,19 @@ fun AdminDashboardScreen(
 
                                                 Spacer(modifier = Modifier.height(6.dp))
 
+                                                val dutyTotal = (dutyAttendanceSummary.presentCount + dutyAttendanceSummary.absentCount + dutyAttendanceSummary.excusedCount).coerceAtLeast(dutyAttendanceSummary.totalMembers)
+                                                val dPresentPct = if (dutyTotal > 0) (dutyAttendanceSummary.presentCount.toFloat() / dutyTotal) * 100f else 0f
+                                                val dAbsentPct = if (dutyTotal > 0) (dutyAttendanceSummary.absentCount.toFloat() / dutyTotal) * 100f else 0f
+                                                val dExcusedPct = if (dutyTotal > 0) (dutyAttendanceSummary.excusedCount.toFloat() / dutyTotal) * 100f else 0f
+
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
                                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    MiniStatBadge(s.statusPresent, dutyAttendanceSummary.presentCount.toString(), PresentGreenContainer, PresentGreen)
-                                                    MiniStatBadge(s.statusAbsent, dutyAttendanceSummary.absentCount.toString(), AbsentRedContainer, AbsentRed)
-                                                    MiniStatBadge(s.statusExcused, dutyAttendanceSummary.excusedCount.toString(), ExcusedBlueContainer, ExcusedBlue)
+                                                    MiniStatBadge(s.statusPresent, "${dutyAttendanceSummary.presentCount} (${String.format(Locale.US, "%.0f%%", dPresentPct)})", PresentGreenContainer, PresentGreen)
+                                                    MiniStatBadge(s.statusAbsent, "${dutyAttendanceSummary.absentCount} (${String.format(Locale.US, "%.0f%%", dAbsentPct)})", AbsentRedContainer, AbsentRed)
+                                                    MiniStatBadge(s.statusExcused, "${dutyAttendanceSummary.excusedCount} (${String.format(Locale.US, "%.0f%%", dExcusedPct)})", ExcusedBlueContainer, ExcusedBlue)
                                                 }
 
                                                 Spacer(modifier = Modifier.height(8.dp))
@@ -693,19 +714,26 @@ fun AdminDashboardScreen(
                                                         )
                                                     }
 
-                                                    if (dutyAttendanceSummary.lastSubmittedTime != null) {
-                                                        Surface(
-                                                            shape = RoundedCornerShape(6.dp),
-                                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                                                        ) {
-                                                            Text(
-                                                                text = "🕒 ${s.submittedAtLabel}: ${dutyAttendanceSummary.lastSubmittedTime}",
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                            )
-                                                        }
+                                                    Text(
+                                                        text = "رۇخسەت: ${String.format(Locale.US, "%.0f", dExcusedPct)}%",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = ExcusedBlue
+                                                    )
+                                                }
+
+                                                if (dutyAttendanceSummary.lastSubmittedTime != null) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                                                    ) {
+                                                        Text(
+                                                            text = "🕒 ${s.submittedAtLabel}: ${dutyAttendanceSummary.lastSubmittedTime}",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
                                                     }
                                                 }
 
@@ -842,13 +870,18 @@ fun AdminDashboardScreen(
                                     }
 
                                     // Counters Row (Present, Absent, Excused)
+                                    val gTotal = (stat.presentCount + stat.absentCount + stat.excusedCount + stat.lateCount).coerceAtLeast(stat.totalMembers)
+                                    val gPresentPct = if (gTotal > 0) (stat.presentCount.toFloat() / gTotal) * 100f else 0f
+                                    val gAbsentPct = if (gTotal > 0) (stat.absentCount.toFloat() / gTotal) * 100f else 0f
+                                    val gExcusedPct = if (gTotal > 0) (stat.excusedCount.toFloat() / gTotal) * 100f else 0f
+
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        MiniStatBadge(s.statusPresent, stat.presentCount.toString(), PresentGreenContainer, PresentGreen)
-                                        MiniStatBadge(s.statusAbsent, stat.absentCount.toString(), AbsentRedContainer, AbsentRed)
-                                        MiniStatBadge(s.statusExcused, stat.excusedCount.toString(), ExcusedBlueContainer, ExcusedBlue)
+                                        MiniStatBadge(s.statusPresent, "${stat.presentCount} (${String.format(Locale.US, "%.0f%%", gPresentPct)})", PresentGreenContainer, PresentGreen)
+                                        MiniStatBadge(s.statusAbsent, "${stat.absentCount} (${String.format(Locale.US, "%.0f%%", gAbsentPct)})", AbsentRedContainer, AbsentRed)
+                                        MiniStatBadge(s.statusExcused, "${stat.excusedCount} (${String.format(Locale.US, "%.0f%%", gExcusedPct)})", ExcusedBlueContainer, ExcusedBlue)
                                     }
                                 }
                             }
@@ -999,13 +1032,18 @@ fun AdminDashboardScreen(
                                                 color = if (stat.attendanceRate >= 80f) PresentGreen else AbsentRed
                                             )
                                             Spacer(modifier = Modifier.height(8.dp))
+                                            val mTotal = (stat.presentCount + stat.absentCount + stat.excusedCount).coerceAtLeast(stat.totalRecords).coerceAtLeast(1)
+                                            val mPresentPct = (stat.presentCount.toFloat() / mTotal) * 100f
+                                            val mAbsentPct = (stat.absentCount.toFloat() / mTotal) * 100f
+                                            val mExcusedPct = (stat.excusedCount.toFloat() / mTotal) * 100f
+
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                MiniStatBadge(s.statusPresent, stat.presentCount.toString(), PresentGreenContainer, PresentGreen)
-                                                MiniStatBadge(s.statusAbsent, stat.absentCount.toString(), AbsentRedContainer, AbsentRed)
-                                                MiniStatBadge(s.statusExcused, stat.excusedCount.toString(), ExcusedBlueContainer, ExcusedBlue)
+                                                MiniStatBadge(s.statusPresent, "${stat.presentCount} (${String.format(Locale.US, "%.0f%%", mPresentPct)})", PresentGreenContainer, PresentGreen)
+                                                MiniStatBadge(s.statusAbsent, "${stat.absentCount} (${String.format(Locale.US, "%.0f%%", mAbsentPct)})", AbsentRedContainer, AbsentRed)
+                                                MiniStatBadge(s.statusExcused, "${stat.excusedCount} (${String.format(Locale.US, "%.0f%%", mExcusedPct)})", ExcusedBlueContainer, ExcusedBlue)
                                             }
                                         }
                                     }
@@ -1074,13 +1112,18 @@ fun AdminDashboardScreen(
                                                 color = if (stat.attendanceRate >= 80f) PresentGreen else AbsentRed
                                             )
                                             Spacer(modifier = Modifier.height(8.dp))
+                                            val qTotal = (stat.presentCount + stat.absentCount + stat.excusedCount).coerceAtLeast(stat.totalRecords).coerceAtLeast(1)
+                                            val qPresentPct = (stat.presentCount.toFloat() / qTotal) * 100f
+                                            val qAbsentPct = (stat.absentCount.toFloat() / qTotal) * 100f
+                                            val qExcusedPct = (stat.excusedCount.toFloat() / qTotal) * 100f
+
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                MiniStatBadge(s.statusPresent, stat.presentCount.toString(), PresentGreenContainer, PresentGreen)
-                                                MiniStatBadge(s.statusAbsent, stat.absentCount.toString(), AbsentRedContainer, AbsentRed)
-                                                MiniStatBadge(s.statusExcused, stat.excusedCount.toString(), ExcusedBlueContainer, ExcusedBlue)
+                                                MiniStatBadge(s.statusPresent, "${stat.presentCount} (${String.format(Locale.US, "%.0f%%", qPresentPct)})", PresentGreenContainer, PresentGreen)
+                                                MiniStatBadge(s.statusAbsent, "${stat.absentCount} (${String.format(Locale.US, "%.0f%%", qAbsentPct)})", AbsentRedContainer, AbsentRed)
+                                                MiniStatBadge(s.statusExcused, "${stat.excusedCount} (${String.format(Locale.US, "%.0f%%", qExcusedPct)})", ExcusedBlueContainer, ExcusedBlue)
                                             }
                                         }
                                     }
@@ -1159,7 +1202,7 @@ fun AdminDashboardScreen(
                 }
 
                 2 -> {
-                    // TAB 2: ADMIN MANAGEMENT - ACCOUNTS, PORTALS & SUSPENSIONS, AND EQUIPMENT
+                    // TAB 2: ADMIN SETTINGS & UNIT CONTROLS (Gear Menu)
                     Column(modifier = Modifier.fillMaxSize()) {
                         TabRow(
                             selectedTabIndex = adminManagementSubTab,
@@ -1171,30 +1214,34 @@ fun AdminDashboardScreen(
                             Tab(
                                 selected = adminManagementSubTab == 0,
                                 onClick = { adminManagementSubTab = 0 },
-                                text = { Text(s.adminSettingsTitle, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                                text = { Text("1. تەڭشەكلەر", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                             )
                             Tab(
                                 selected = adminManagementSubTab == 1,
                                 onClick = { adminManagementSubTab = 1 },
-                                text = { Text(s.portalControlTitle, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                                text = { Text("2. بايراق-قىسىملار", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                             )
                             Tab(
                                 selected = adminManagementSubTab == 2,
                                 onClick = { adminManagementSubTab = 2 },
-                                text = { Text(s.equipmentInventory, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                                text = { Text("3. ھېساباتلار", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
+                            Tab(
+                                selected = adminManagementSubTab == 3,
+                                onClick = { adminManagementSubTab = 3 },
+                                text = { Text("4. قورال-ياراغ", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                             )
                         }
 
                         when (adminManagementSubTab) {
                             0 -> {
-                                val groupMap = groups.associateBy { it.id }
-
+                                // 1. SYSTEM, CLOUD, APPEARANCE & DISPLAY SETTINGS
                                 LazyColumn(
                                     modifier = Modifier.fillMaxSize(),
                                     contentPadding = PaddingValues(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)
                                 ) {
-                                    // Theme switching preset row
+                                    // 1. Cloud Database (بۇلۇت بازىسى)
                                     item {
                                         ElevatedCard(
                                             shape = RoundedCornerShape(16.dp),
@@ -1202,13 +1249,96 @@ fun AdminDashboardScreen(
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Column(modifier = Modifier.padding(16.dp)) {
-                                                Text(
-                                                    text = s.themes,
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                                Spacer(modifier = Modifier.height(10.dp))
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(36.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color(0xFF2E9A68).copy(alpha = 0.15f)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.CloudSync,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFF2E9A68),
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(10.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = "1. بۇلۇت بازىسى (Cloud Database)",
+                                                            style = MaterialTheme.typography.titleMedium,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                        Text(
+                                                            text = "Supabase بۇلۇت بازىسى بىلەن يوقلىما ۋە سانلىق مەلۇماتلارنى ماسقەدەملەش",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                Button(
+                                                    onClick = { showSupabaseSyncDialog = true },
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E9A68)),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text("بۇلۇت بازىسى ۋە ماسقەدەملەش كۆزنىكىنى ئېچىش", fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 2. Color Theme Selection (رەڭ تاللاش)
+                                    item {
+                                        ElevatedCard(
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(16.dp)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(36.dp)
+                                                            .clip(CircleShape)
+                                                            .background(MaterialTheme.colorScheme.primaryContainer),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.ColorLens,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(10.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = "2. رەڭ تاللاش (Theme Color)",
+                                                            style = MaterialTheme.typography.titleMedium,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                        Text(
+                                                            text = "پۈتۈن سىستېمىنىڭ ئاساسىي كۆرۈنۈش رەڭگىنى تاللاڭ",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(12.dp))
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
                                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1220,10 +1350,11 @@ fun AdminDashboardScreen(
                                                             com.example.ui.theme.AppThemePreset.PURPLE -> s.themePurple
                                                             com.example.ui.theme.AppThemePreset.AMBER -> s.themeAmber
                                                         }
+                                                        val isSel = currentThemePreset == preset
                                                         FilterChip(
-                                                            selected = currentThemePreset == preset,
+                                                            selected = isSel,
                                                             onClick = { viewModel.setThemePreset(preset) },
-                                                            label = { Text(name, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                                                            label = { Text(name, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
                                                             colors = FilterChipDefaults.filterChipColors(
                                                                 selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                                                 selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -1236,6 +1367,155 @@ fun AdminDashboardScreen(
                                         }
                                     }
 
+                                    // 3. Night & Day Mode (كېچە ۋە كۈندۈزنى ئۆزگەرتىش)
+                                    item {
+                                        ElevatedCard(
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(16.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(36.dp)
+                                                            .clip(CircleShape)
+                                                            .background(MaterialTheme.colorScheme.primaryContainer),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = if (isDarkMode) Icons.Default.DarkMode else Icons.Default.LightMode,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(10.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = "3. كېچە ۋە كۈندۈز ھالىتى",
+                                                            style = MaterialTheme.typography.titleMedium,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                        Text(
+                                                            text = if (isDarkMode) "نۆۋەتتە: كېچە ھالىتى (قاراڭغۇ كۆرۈنۈش)" else "نۆۋەتتە: كۈندۈز ھالىتى (يورۇق كۆرۈنۈش)",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
+                                                Switch(
+                                                    checked = isDarkMode,
+                                                    onCheckedChange = { viewModel.toggleDarkMode() },
+                                                    modifier = Modifier.testTag("settings_dark_mode_switch")
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // 4. Language Selection (تىل تاللاش)
+                                    item {
+                                        ElevatedCard(
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(16.dp)) {
+                                                Text(
+                                                    text = "4. تىل تاللاش (Language)",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Language.values().forEach { lang ->
+                                                        val isLangSel = language == lang
+                                                        val labelText = when (lang) {
+                                                            Language.UYGHUR -> "ئۇيغۇرچە"
+                                                            Language.ARABIC -> "العربية"
+                                                        }
+                                                        FilterChip(
+                                                            selected = isLangSel,
+                                                            onClick = { viewModel.setLanguage(lang) },
+                                                            label = { Text(labelText, fontSize = 11.sp, fontWeight = if (isLangSel) FontWeight.Bold else FontWeight.Normal) },
+                                                            colors = FilterChipDefaults.filterChipColors(
+                                                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                            ),
+                                                            modifier = Modifier.weight(1f)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 5. Leader Attendance Display Toggle
+                                    item {
+                                        ElevatedCard(
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(16.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "بايراق رەھبەر يوقلىمىسىنى كۆرسىتىش",
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Text(
+                                                        text = "بار، يوق، باشقا يەردە خىزمەتتە، ئارامدا ھالەتلىرى كۆرۈنىدۇ",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Switch(
+                                                    checked = leaderAttendanceVisible,
+                                                    onCheckedChange = { viewModel.toggleLeaderAttendanceVisible() },
+                                                    modifier = Modifier.testTag("settings_leader_att_switch")
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            1 -> {
+                                // 2. ACTIVE PORTALS & REMOTE MANAGEMENT OF ALL BAYRAQ / QISIM UNITS
+                                ActivePortalsManagementView(viewModel = viewModel)
+                            }
+
+                            2 -> {
+                                // 3. ACCOUNTS & SECURITY
+                                val groupMap = groups.associateBy { it.id }
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
                                     item {
                                         Text(
                                             text = s.adminSettingsTitle,
@@ -1245,7 +1525,6 @@ fun AdminDashboardScreen(
                                         )
                                     }
 
-                                    // List all accounts (Admin + Group Leads)
                                     items(users, key = { it.id }) { u ->
                                         val userGroup = groupMap[u.groupId]
                                         ElevatedCard(
@@ -1291,7 +1570,6 @@ fun AdminDashboardScreen(
                                                         style = MaterialTheme.typography.bodySmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
-                                                    // Password status display
                                                     if (u.passwordHash.isEmpty()) {
                                                         Text(
                                                             text = "🔓 ${s.noPasswordSet}",
@@ -1331,11 +1609,8 @@ fun AdminDashboardScreen(
                                 }
                             }
 
-                            1 -> {
-                                ActivePortalsManagementView(viewModel = viewModel)
-                            }
-
-                            2 -> {
+                            3 -> {
+                                // 4. EQUIPMENT & WEAPONS INVENTORY
                                 EquipmentManagementView(groupId = 0L, viewModel = viewModel, canEdit = true)
                             }
                         }
@@ -1598,6 +1873,99 @@ fun AdminDashboardScreen(
                                                     color = MaterialTheme.colorScheme.onSurface
                                                 )
                                             }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Supabase Cloud Sync & Backup Card
+                        item {
+                            ElevatedCard(
+                                shape = RoundedCornerShape(18.dp),
+                                colors = CardDefaults.elevatedCardColors(
+                                    containerColor = Color(0xFF3ECF8E).copy(alpha = 0.12f)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(18.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(44.dp)
+                                                    .clip(RoundedCornerShape(12.dp))
+                                                    .background(Color(0xFF2E9A68)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CloudSync,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(26.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column {
+                                                Text(
+                                                    text = "Supabase بۇلۇت ئۇلىنىشى ۋە زاپاسلاش",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Text(
+                                                    text = "Project: sjfvcxijfgbmeryuezoc",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = Color(0xFF2E9A68).copy(alpha = 0.2f)
+                                        ) {
+                                            Text(
+                                                text = "Cloud DB",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF1E6C47),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    Text(
+                                        text = "بارلىق گۇرۇپپىلار، ئەزالار، يوقلىما، قوراللار، ئۇقتۇرۇشلار ۋە مەسئۇللار تىزىملىكىنى Supabase بۇلۇت بازىسىغا يۈكلەش، تەكشۈرۈش ياكى ئەسلىگە كەلتۈرۈش.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = { showSupabaseSyncDialog = true },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color(0xFF2E9A68)
+                                            ),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .testTag("open_supabase_sync_card_btn")
+                                        ) {
+                                            Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("بۇلۇت مەركىزىنى ئېچىش", fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -1870,8 +2238,11 @@ fun AdminDashboardScreen(
 
                     if (grp.subLeader1.isNotBlank()) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
                                 text = "${s.subGroup1LeaderLabel}: ${grp.subLeader1}",
@@ -1880,36 +2251,65 @@ fun AdminDashboardScreen(
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.weight(1f)
                             )
-                            if (!grp.subLeader1Contact.isNullOrBlank()) {
-                                IconButton(
-                                    onClick = { com.example.util.ContactUtils.openPhoneCall(context, grp.subLeader1Contact) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Phone, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (!grp.subLeader1Contact.isNullOrBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF2E7D32).copy(alpha = 0.15f),
+                                        modifier = Modifier.clickable { com.example.util.ContactUtils.openPhoneCall(context, grp.subLeader1Contact) }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Phone, contentDescription = "تېلېفون", tint = Color(0xFF2E7D32), modifier = Modifier.size(12.dp))
+                                            Spacer(modifier = Modifier.width(2.dp))
+                                            Text("تېلېفون", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 }
-                            }
-                            if (!grp.subLeader1Telegram.isNullOrBlank()) {
-                                IconButton(
-                                    onClick = { com.example.util.ContactUtils.openTelegram(context, grp.subLeader1Telegram) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Send, contentDescription = null, tint = Color(0xFF0088CC), modifier = Modifier.size(16.dp))
+                                if (!grp.subLeader1Telegram.isNullOrBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF0088CC).copy(alpha = 0.15f),
+                                        modifier = Modifier.clickable { com.example.util.ContactUtils.openTelegram(context, grp.subLeader1Telegram) }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Send, contentDescription = "Telegram", tint = Color(0xFF0088CC), modifier = Modifier.size(12.dp))
+                                            Spacer(modifier = Modifier.width(2.dp))
+                                            Text("TG", fontSize = 10.sp, color = Color(0xFF0088CC), fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 }
-                            }
-                            if (!grp.subLeader1Whatsapp.isNullOrBlank()) {
-                                IconButton(
-                                    onClick = { com.example.util.ContactUtils.openWhatsApp(context, grp.subLeader1Whatsapp) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Chat, contentDescription = null, tint = Color(0xFF1EBE5D), modifier = Modifier.size(16.dp))
+                                if (!grp.subLeader1Whatsapp.isNullOrBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF1EBE5D).copy(alpha = 0.15f),
+                                        modifier = Modifier.clickable { com.example.util.ContactUtils.openWhatsApp(context, grp.subLeader1Whatsapp) }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Chat, contentDescription = "WhatsApp", tint = Color(0xFF1EBE5D), modifier = Modifier.size(12.dp))
+                                            Spacer(modifier = Modifier.width(2.dp))
+                                            Text("WA", fontSize = 10.sp, color = Color(0xFF0F6E35), fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                     if (grp.subLeader2.isNotBlank()) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
                                 text = "${s.subGroup2LeaderLabel}: ${grp.subLeader2}",
@@ -1918,28 +2318,54 @@ fun AdminDashboardScreen(
                                 color = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.weight(1f)
                             )
-                            if (!grp.subLeader2Contact.isNullOrBlank()) {
-                                IconButton(
-                                    onClick = { com.example.util.ContactUtils.openPhoneCall(context, grp.subLeader2Contact) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Phone, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (!grp.subLeader2Contact.isNullOrBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF2E7D32).copy(alpha = 0.15f),
+                                        modifier = Modifier.clickable { com.example.util.ContactUtils.openPhoneCall(context, grp.subLeader2Contact) }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Phone, contentDescription = "تېلېفون", tint = Color(0xFF2E7D32), modifier = Modifier.size(12.dp))
+                                            Spacer(modifier = Modifier.width(2.dp))
+                                            Text("تېلېفون", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 }
-                            }
-                            if (!grp.subLeader2Telegram.isNullOrBlank()) {
-                                IconButton(
-                                    onClick = { com.example.util.ContactUtils.openTelegram(context, grp.subLeader2Telegram) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Send, contentDescription = null, tint = Color(0xFF0088CC), modifier = Modifier.size(16.dp))
+                                if (!grp.subLeader2Telegram.isNullOrBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF0088CC).copy(alpha = 0.15f),
+                                        modifier = Modifier.clickable { com.example.util.ContactUtils.openTelegram(context, grp.subLeader2Telegram) }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Send, contentDescription = "Telegram", tint = Color(0xFF0088CC), modifier = Modifier.size(12.dp))
+                                            Spacer(modifier = Modifier.width(2.dp))
+                                            Text("TG", fontSize = 10.sp, color = Color(0xFF0088CC), fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 }
-                            }
-                            if (!grp.subLeader2Whatsapp.isNullOrBlank()) {
-                                IconButton(
-                                    onClick = { com.example.util.ContactUtils.openWhatsApp(context, grp.subLeader2Whatsapp) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Chat, contentDescription = null, tint = Color(0xFF1EBE5D), modifier = Modifier.size(16.dp))
+                                if (!grp.subLeader2Whatsapp.isNullOrBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF1EBE5D).copy(alpha = 0.15f),
+                                        modifier = Modifier.clickable { com.example.util.ContactUtils.openWhatsApp(context, grp.subLeader2Whatsapp) }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Chat, contentDescription = "WhatsApp", tint = Color(0xFF1EBE5D), modifier = Modifier.size(12.dp))
+                                            Spacer(modifier = Modifier.width(2.dp))
+                                            Text("WA", fontSize = 10.sp, color = Color(0xFF0F6E35), fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2262,9 +2688,13 @@ fun AdminDashboardScreen(
         )
     }
 
-    // Duty Group Selection Dialog
+    // Duty Sanjaq Selection Dialog
     if (showDutyGroupDialog) {
         var selectedDutyGroupId by remember(currentDutyGroup?.id) { mutableStateOf(currentDutyGroup?.id ?: groups.firstOrNull()?.id ?: 1L) }
+        val initialSelectedSgs = remember(currentDutyGroup?.dutySubGroupCustomName, currentDutyGroup?.dutySubGroup) {
+            viewModel.parseDutySubGroups(currentDutyGroup?.dutySubGroupCustomName ?: "", currentDutyGroup?.dutySubGroup ?: 1).toSet()
+        }
+        var selectedDutySgs by remember(initialSelectedSgs) { mutableStateOf(initialSelectedSgs) }
         var dutyNotesInput by remember(dutyGroupNotes) { mutableStateOf(dutyGroupNotes) }
 
         AlertDialog(
@@ -2274,7 +2704,7 @@ fun AdminDashboardScreen(
                     Icon(Icons.Default.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = s.selectDutyGroup,
+                        text = "نۆۋەتچى سانجاقلارنى تاللاش",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -2286,12 +2716,12 @@ fun AdminDashboardScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "نۆۋبەتچىلىك ئۆتەيدىغان گۇرۇپپىنى تاللاڭ:",
+                        text = "نۆۋبەتچىلىك ئۆتەيدىغان بايراقنى تاللاڭ:",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold
                     )
 
-                    // Group Selection Chips
+                    // Bayraq Selection Chips
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         groups.chunked(3).forEach { rowGroups ->
                             Row(
@@ -2312,11 +2742,49 @@ fun AdminDashboardScreen(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
+                    Text(
+                        text = "نۆۋەتچى سانجاقلارنى تاللاڭ (بىر ياكى بىر قانچىنى بىرلا ۋاقىتتا تاللىيالايسىز):",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        (1..4).forEach { sgNum ->
+                            val isSelected = selectedDutySgs.contains(sgNum)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    selectedDutySgs = if (isSelected) {
+                                        if (selectedDutySgs.size > 1) selectedDutySgs - sgNum else selectedDutySgs
+                                    } else {
+                                        selectedDutySgs + sgNum
+                                    }
+                                },
+                                label = { Text("$sgNum-سانجاق", style = MaterialTheme.typography.labelSmall) },
+                                leadingIcon = if (isSelected) {
+                                    {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                    }
+                                } else null,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
                     OutlinedTextField(
                         value = dutyNotesInput,
                         onValueChange = { dutyNotesInput = it },
                         label = { Text(s.dutyGroupNotes) },
-                        placeholder = { Text("مەسىلەن: 1-ۋە 2-گۇرۇپچىلار كېچىلىك قاراۋۇللۇق ۋەزىپىسىنى ئۆتەيدۇ") },
+                        placeholder = { Text("مەسىلەن: 1-سانجاق ۋە 2-سانجاق كېچىلىك قاراۋۇللۇق ۋەزىپىسىنى ئۆتەيدۇ") },
                         minLines = 2,
                         maxLines = 4,
                         shape = RoundedCornerShape(12.dp),
@@ -2327,7 +2795,15 @@ fun AdminDashboardScreen(
             confirmButton = {
                 Button(
                     onClick = {
+                        val sgsList = if (selectedDutySgs.isEmpty()) listOf(1) else selectedDutySgs.toList().sorted()
+                        val customName = sgsList.joinToString("، ") { "$it-سانجاق" }
                         viewModel.setDutyGroup(selectedDutyGroupId, dutyNotesInput.trim())
+                        viewModel.setGroupDutySubGroups(
+                            groupId = selectedDutyGroupId,
+                            dutySubGroups = sgsList,
+                            notes = dutyNotesInput.trim(),
+                            customName = customName
+                        )
                         showDutyGroupDialog = false
                     },
                     shape = RoundedCornerShape(10.dp),
@@ -2487,6 +2963,23 @@ fun AdminDashboardScreen(
             initialGroupId = multiDateAnalyticsGroupId,
             viewModel = viewModel,
             onDismiss = { showMultiDateAnalyticsDialog = false }
+        )
+    }
+
+    // Supabase Cloud Sync & Backup Dialog
+    if (showSupabaseSyncDialog) {
+        SupabaseSyncManagementDialog(
+            viewModel = viewModel,
+            onDismiss = { showSupabaseSyncDialog = false }
+        )
+    }
+
+    // Admin System & Device Remote Management Settings Dialog (⚙️)
+    if (showAdminSystemSettingsDialog) {
+        AdminSystemSettingsDialog(
+            viewModel = viewModel,
+            s = s,
+            onDismiss = { showAdminSystemSettingsDialog = false }
         )
     }
 }

@@ -196,4 +196,84 @@ data class NoticeReceiptEntity(
     val acknowledgedTimestamp: Long = 0L
 )
 
+// 4. Bayraq 3 Key Leaders (بايراق مەسئۇلى، بايراق ئەركان، بايراق ئىدارى)
+@Entity(
+    tableName = "group_leaders",
+    indices = [Index(value = ["groupId", "roleType"], unique = true)]
+)
+data class GroupLeaderEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val groupId: Long,
+    val roleType: String, // "LEADER" (بايراق مەسئۇلى), "ERKAN" (بايراق ئەركان), "IDARI" (بايراق ئىدارى)
+    val name: String = "",
+    val phone: String = "",
+    val telegram: String = "",
+    val whatsapp: String = "",
+    val otherContact: String = "",
+    val notes: String = ""
+)
+
+// 5. Bayraq 3 Key Leaders Attendance (بار، يوق، باشقا يەردە خىزمەتتە، ئارام)
+@Entity(
+    tableName = "group_leader_attendance",
+    indices = [
+        Index(value = ["groupId", "roleType", "date"], unique = true),
+        Index("date"),
+        Index("groupId")
+    ]
+)
+data class GroupLeaderAttendanceEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val groupId: Long,
+    val roleType: String, // "LEADER", "ERKAN", "IDARI"
+    val date: String, // YYYY-MM-DD
+    val status: String = "PRESENT", // PRESENT (بار), ABSENT (يوق), EXTERNAL_MISSION (باشقا يەردە خىزمەتتە), REST (ئارام)
+    val note: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+// 6. Sanjaq Leadership Directory & Info (سانجاق مەسئۇلى ۋە نائىب سانجاق)
+@Entity(
+    tableName = "sanjaq_leaders",
+    indices = [Index(value = ["groupId", "sanjaqNumber"], unique = true)]
+)
+data class SanjaqLeaderEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val groupId: Long,
+    val sanjaqNumber: Int, // 1, 2, 3, 4, 5...
+    val sanjaqCustomName: String = "",
+    val leaderName: String = "",
+    val leaderPhone: String = "",
+    val leaderTelegram: String = "",
+    val leaderWhatsapp: String = "",
+    val leaderOther: String = "",
+    val deputyName: String = "",
+    val deputyPhone: String = "",
+    val deputyTelegram: String = "",
+    val deputyWhatsapp: String = "",
+    val deputyOther: String = ""
+)
+
+// 7. Active Devices & Remote Termination Management (ئېچىلغان تېلېفونلارنى كۆرۈش ۋە توختىتىش)
+@Entity(
+    tableName = "device_sessions",
+    indices = [Index(value = ["deviceId"], unique = true)]
+)
+data class DeviceSessionEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val deviceId: String,
+    val deviceName: String,
+    val osVersion: String = "",
+    val lastLoginUser: String = "",
+    val firstSeenTime: Long = System.currentTimeMillis(),
+    val lastActiveTime: Long = System.currentTimeMillis(),
+    val isBlocked: Boolean = false,
+    val blockedReason: String = ""
+)
+
+
 

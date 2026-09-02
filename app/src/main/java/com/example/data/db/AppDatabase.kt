@@ -54,9 +54,13 @@ class Converters {
         EquipmentEntity::class,
         DailyUpdateEntity::class,
         ExecutiveContactEntity::class,
-        com.example.data.model.NoticeReceiptEntity::class
+        com.example.data.model.NoticeReceiptEntity::class,
+        com.example.data.model.GroupLeaderEntity::class,
+        com.example.data.model.GroupLeaderAttendanceEntity::class,
+        com.example.data.model.SanjaqLeaderEntity::class,
+        com.example.data.model.DeviceSessionEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -151,7 +155,7 @@ suspend fun populateInitialData(dao: AttendanceDao) {
         dao.insertGroups(groups)
     }
 
-    // 2. Initial Authentication Users (Admin + 6 Group Leads)
+    // 2. Initial Authentication Users (Admin + 6 Bayraq/Qisim Leads)
     val users = listOf(
         UserEntity(
             id = 1,
@@ -166,7 +170,7 @@ suspend fun populateInitialData(dao: AttendanceDao) {
             groupId = 1,
             loginName = "lead1",
             passwordHash = "123456",
-            displayName = "م ط مەسئۇلى",
+            displayName = "م ط بايرىقى",
             role = UserRole.GROUP_LEAD
         ),
         UserEntity(
@@ -174,7 +178,7 @@ suspend fun populateInitialData(dao: AttendanceDao) {
             groupId = 2,
             loginName = "lead2",
             passwordHash = "123456",
-            displayName = "قنص مەسئۇلى",
+            displayName = "قنص بايرىقى",
             role = UserRole.GROUP_LEAD
         ),
         UserEntity(
@@ -182,7 +186,7 @@ suspend fun populateInitialData(dao: AttendanceDao) {
             groupId = 3,
             loginName = "lead3",
             passwordHash = "123456",
-            displayName = "م د مەسئۇلى",
+            displayName = "م د بايرىقى",
             role = UserRole.GROUP_LEAD
         ),
         UserEntity(
@@ -190,7 +194,7 @@ suspend fun populateInitialData(dao: AttendanceDao) {
             groupId = 4,
             loginName = "lead4",
             passwordHash = "123456",
-            displayName = "اسناد مەسئۇلى",
+            displayName = "اسناد بايرىقى",
             role = UserRole.GROUP_LEAD
         ),
         UserEntity(
@@ -198,7 +202,7 @@ suspend fun populateInitialData(dao: AttendanceDao) {
             groupId = 5,
             loginName = "lead5",
             passwordHash = "123456",
-            displayName = "إدارى مەسئۇلى",
+            displayName = "إدارى قىسمى",
             role = UserRole.GROUP_LEAD
         ),
         UserEntity(
@@ -206,7 +210,7 @@ suspend fun populateInitialData(dao: AttendanceDao) {
             groupId = 6,
             loginName = "lead6",
             passwordHash = "123456",
-            displayName = "عمليات مەسئۇلى",
+            displayName = "عمليات قىسمى",
             role = UserRole.GROUP_LEAD
         )
     )
@@ -218,5 +222,43 @@ suspend fun populateInitialData(dao: AttendanceDao) {
         if (admin == null) {
             dao.insertUser(users[0])
         }
+    }
+
+    // 3. Seed initial 3 Key Leaders per group (بايراق مەسئۇلى، بايراق ئەركان، بايراق ئىدارى)
+    if (dao.getGroupLeadersCount() == 0) {
+        val initialLeaders = mutableListOf<com.example.data.model.GroupLeaderEntity>()
+        for (groupId in 1L..6L) {
+            initialLeaders.add(com.example.data.model.GroupLeaderEntity(groupId = groupId, roleType = "LEADER", name = "", phone = "", telegram = "", whatsapp = "", otherContact = "", notes = ""))
+            initialLeaders.add(com.example.data.model.GroupLeaderEntity(groupId = groupId, roleType = "ERKAN", name = "", phone = "", telegram = "", whatsapp = "", otherContact = "", notes = ""))
+            initialLeaders.add(com.example.data.model.GroupLeaderEntity(groupId = groupId, roleType = "IDARI", name = "", phone = "", telegram = "", whatsapp = "", otherContact = "", notes = ""))
+        }
+        dao.insertGroupLeadersBatch(initialLeaders)
+    }
+
+    // 4. Seed initial 4 Sanjaqs per group (1-سانجاق, 2-سانجاق, 3-سانجاق, 4-سانجاق)
+    if (dao.getSanjaqLeadersCount() == 0) {
+        val initialSanjaqs = mutableListOf<com.example.data.model.SanjaqLeaderEntity>()
+        for (groupId in 1L..6L) {
+            for (sNum in 1..4) {
+                initialSanjaqs.add(
+                    com.example.data.model.SanjaqLeaderEntity(
+                        groupId = groupId,
+                        sanjaqNumber = sNum,
+                        sanjaqCustomName = "$sNum-سانجاق",
+                        leaderName = "",
+                        leaderPhone = "",
+                        leaderTelegram = "",
+                        leaderWhatsapp = "",
+                        leaderOther = "",
+                        deputyName = "",
+                        deputyPhone = "",
+                        deputyTelegram = "",
+                        deputyWhatsapp = "",
+                        deputyOther = ""
+                    )
+                )
+            }
+        }
+        dao.insertSanjaqLeadersBatch(initialSanjaqs)
     }
 }

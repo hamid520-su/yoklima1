@@ -85,6 +85,7 @@ import java.util.Locale
 @Composable
 fun MultiDateAnalyticsDialog(
     initialGroupId: Long = 0L, // 0L: All groups, 1L..6L: Specific Group
+    restrictToGroupOnly: Boolean = false,
     viewModel: AttendanceViewModel,
     onDismiss: () -> Unit
 ) {
@@ -95,7 +96,7 @@ fun MultiDateAnalyticsDialog(
     val allMembers by viewModel.allMembers.collectAsState()
     val todayDate by viewModel.selectedDate.collectAsState()
 
-    var targetGroupId by remember { mutableStateOf(initialGroupId) }
+    var targetGroupId by remember { mutableStateOf(if (restrictToGroupOnly && initialGroupId > 0L) initialGroupId else initialGroupId) }
 
     // Date Range Config
     // Year-Month (e.g. 2026-08)
@@ -245,35 +246,61 @@ fun MultiDateAnalyticsDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Group Switcher Tabs
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // All groups chip
-                    FilterChip(
-                        selected = targetGroupId == 0L,
-                        onClick = { targetGroupId = 0L },
-                        label = { Text("پۈتۈن سىستېما", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
-                        leadingIcon = if (targetGroupId == 0L) {
-                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(12.dp)) }
-                        } else null,
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = Color.White
-                        )
-                    )
-
-                    // 6 Groups chips
-                    groups.forEach { grp ->
-                        val isSel = targetGroupId == grp.id
+                // Group Switcher Tabs or Locked Group Banner
+                if (restrictToGroupOnly && targetGroupId > 0L) {
+                    val thisGrp = groups.find { it.id == targetGroupId }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Group,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "بايراق: ${thisGrp?.name ?: "گۇرۇپپا $targetGroupId"}",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            ) {
+                                Text(
+                                    text = "بايراق كۆپ كۈنلۈك تەھلىلى",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // All groups chip (Admin only)
                         FilterChip(
-                            selected = isSel,
-                            onClick = { targetGroupId = grp.id },
-                            label = { Text(grp.name, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal, fontSize = 11.sp) },
-                            leadingIcon = if (isSel) {
+                            selected = targetGroupId == 0L,
+                            onClick = { targetGroupId = 0L },
+                            label = { Text("پۈتۈن سىستېما", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                            leadingIcon = if (targetGroupId == 0L) {
                                 { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(12.dp)) }
                             } else null,
                             colors = FilterChipDefaults.filterChipColors(
@@ -281,6 +308,23 @@ fun MultiDateAnalyticsDialog(
                                 selectedLabelColor = Color.White
                             )
                         )
+
+                        // 6 Groups chips
+                        groups.forEach { grp ->
+                            val isSel = targetGroupId == grp.id
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { targetGroupId = grp.id },
+                                label = { Text(grp.name, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal, fontSize = 11.sp) },
+                                leadingIcon = if (isSel) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                                } else null,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
                     }
                 }
 
@@ -447,6 +491,10 @@ fun MultiDateAnalyticsDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
+                        val presentPercentage = if (totalExpectedDays > 0) (totalPresent.toFloat() / totalExpectedDays.toFloat()) * 100f else 0f
+                        val absentPercentage = if (totalExpectedDays > 0) (totalAbsent.toFloat() / totalExpectedDays.toFloat()) * 100f else 0f
+                        val excusedPercentage = if (totalExpectedDays > 0) (totalExcused.toFloat() / totalExpectedDays.toFloat()) * 100f else 0f
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -467,12 +515,20 @@ fun MultiDateAnalyticsDialog(
                                 )
                             }
 
-                            Text(
-                                text = "${String.format(Locale.US, "%.1f", overallAttendanceRate)}%",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Black,
-                                color = if (overallAttendanceRate >= 80f) PresentGreen else AbsentRed
-                            )
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "${String.format(Locale.US, "%.1f", overallAttendanceRate)}%",
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (overallAttendanceRate >= 80f) PresentGreen else AbsentRed
+                                )
+                                Text(
+                                    text = "رۇخسەت: ${String.format(Locale.US, "%.1f", excusedPercentage)}%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ExcusedBlue
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -482,9 +538,9 @@ fun MultiDateAnalyticsDialog(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            MiniStatBadge(s.statusPresent, totalPresent.toString(), PresentGreenContainer, PresentGreen, Modifier.weight(1f))
-                            MiniStatBadge(s.statusAbsent, totalAbsent.toString(), AbsentRedContainer, AbsentRed, Modifier.weight(1f))
-                            MiniStatBadge(s.statusExcused, totalExcused.toString(), ExcusedBlueContainer, ExcusedBlue, Modifier.weight(1f))
+                            MiniStatBadge(s.statusPresent, "$totalPresent (${String.format(Locale.US, "%.0f%%", presentPercentage)})", PresentGreenContainer, PresentGreen, Modifier.weight(1f))
+                            MiniStatBadge(s.statusAbsent, "$totalAbsent (${String.format(Locale.US, "%.0f%%", absentPercentage)})", AbsentRedContainer, AbsentRed, Modifier.weight(1f))
+                            MiniStatBadge(s.statusExcused, "$totalExcused (${String.format(Locale.US, "%.0f%%", excusedPercentage)})", ExcusedBlueContainer, ExcusedBlue, Modifier.weight(1f))
                         }
                     }
                 }
@@ -568,19 +624,27 @@ fun MultiDateAnalyticsDialog(
                                             fontWeight = FontWeight.Bold
                                         )
                                         Text(
-                                            text = "${s.statusPresent}: ${grpStat.presentCount} | ${s.statusAbsent}: ${grpStat.absentCount} | ${s.statusExcused}: ${grpStat.excusedCount}",
+                                            text = "${s.statusPresent}: ${grpStat.presentCount} | ${s.statusAbsent}: ${grpStat.absentCount} | ${s.statusExcused}: ${grpStat.excusedCount} (رۇخسەت: ${String.format(Locale.US, "%.0f%%", grpStat.excusedRate)})",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
 
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = "${String.format(Locale.US, "%.1f", grpStat.attendanceRate)}%",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (grpStat.attendanceRate >= 80f) PresentGreen else AbsentRed
-                                        )
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text(
+                                                text = "${String.format(Locale.US, "%.1f", grpStat.attendanceRate)}%",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (grpStat.attendanceRate >= 80f) PresentGreen else AbsentRed
+                                            )
+                                            Text(
+                                                text = "رۇخسەت: ${String.format(Locale.US, "%.0f", grpStat.excusedRate)}%",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ExcusedBlue
+                                            )
+                                        }
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Icon(
                                             imageVector = Icons.Default.Assessment,
@@ -641,12 +705,20 @@ fun MultiDateAnalyticsDialog(
                                         }
                                     }
 
-                                    Text(
-                                        text = "${String.format(Locale.US, "%.0f", mStat.attendanceRate)}%",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (mStat.attendanceRate >= 80f) PresentGreen else AbsentRed
-                                    )
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = "${String.format(Locale.US, "%.0f", mStat.attendanceRate)}%",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (mStat.attendanceRate >= 80f) PresentGreen else AbsentRed
+                                        )
+                                        Text(
+                                            text = "رۇخسەت: ${String.format(Locale.US, "%.0f", mStat.excusedRate)}%",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ExcusedBlue
+                                        )
+                                    }
                                 }
                             }
                         }

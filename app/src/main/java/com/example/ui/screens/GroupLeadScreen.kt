@@ -4,9 +4,13 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarToday
@@ -33,6 +38,10 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Assessment
+import com.example.ui.components.GroupLeadSettingsDialog
+import com.example.ui.components.MultiDateAnalyticsDialog
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LightMode
@@ -105,6 +114,11 @@ import com.example.ui.components.ExecutiveContactsView
 import com.example.ui.components.EquipmentManagementView
 import com.example.ui.components.DateSelectorStrip
 import com.example.ui.components.LanguageToggleHeader
+import com.example.ui.components.SupabaseSyncManagementDialog
+import com.example.ui.components.BayraqLeadersCard
+import com.example.ui.components.SanjaqManagementCard
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.CloudSync
 import com.example.ui.theme.AbsentRed
 import com.example.ui.theme.AbsentRedContainer
 import com.example.ui.theme.ExcusedBlue
@@ -143,6 +157,9 @@ fun GroupLeadScreen(
     var editingMember by remember { mutableStateOf<MemberEntity?>(null) }
     var memberToDelete by remember { mutableStateOf<MemberEntity?>(null) }
     var memberSearchQuery by remember { mutableStateOf("") }
+    var showSupabaseSyncDialog by remember { mutableStateOf(false) }
+    var showGroupLeadSettingsDialog by remember { mutableStateOf(false) }
+    var showLeadAnalyticsDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(user.groupId) {
         if (user.groupId != null) {
@@ -206,37 +223,20 @@ fun GroupLeadScreen(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            // Cycle theme button
+                            // Settings Button (Gear ⚙️) - Consolidates Language, AutoSync/Refresh, Supabase, Theme, DarkMode
                             IconButton(
-                                onClick = { viewModel.cycleTheme() },
-                                modifier = Modifier.size(36.dp).testTag("cycle_theme_button")
+                                onClick = { showGroupLeadSettingsDialog = true },
+                                modifier = Modifier.size(36.dp).testTag("lead_settings_gear_btn")
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.ColorLens,
-                                    contentDescription = s.switchTheme,
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Settings",
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
 
-                            // Dark / Light toggle
-                            IconButton(
-                                onClick = { viewModel.toggleDarkMode() },
-                                modifier = Modifier.size(36.dp).testTag("dark_mode_toggle")
-                            ) {
-                                Icon(
-                                    imageVector = if (isDarkMode) Icons.Default.LightMode else Icons.Default.DarkMode,
-                                    contentDescription = if (isDarkMode) s.lightMode else s.darkMode,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            LanguageToggleHeader(
-                                currentLanguage = language,
-                                onToggle = { viewModel.toggleLanguage() }
-                            )
-
+                            // Logout Button
                             IconButton(
                                 onClick = { viewModel.logout(user.groupId) },
                                 modifier = Modifier.size(36.dp).testTag("logout_button")
@@ -369,58 +369,26 @@ fun GroupLeadScreen(
             when (selectedTab) {
                 0 -> {
                     // TAB 0: TODAY'S ATTENDANCE
-                    val sub1Members = members.filter { it.subGroup == 1 }
-                    val sub2Members = members.filter { it.subGroup == 2 }
-                    val sub1LeaderCount = if (group?.subLeader1?.isNotBlank() == true) 1 else 0
-                    val sub2LeaderCount = if (group?.subLeader2?.isNotBlank() == true) 1 else 0
+                    val selectedSanjaqs by viewModel.selectedSanjaqNumbers.collectAsState()
+                    val allSanjaqEntities by viewModel.allSanjaqLeaders.collectAsState()
+                    val currentGroupSanjaqs = allSanjaqEntities.filter { it.groupId == group?.id }.sortedBy { it.sanjaqNumber }
 
-                    val sub1Records = sub1Members.mapNotNull { attendanceMap[it.id] }
-                    val sub2Records = sub2Members.mapNotNull { attendanceMap[it.id] }
+                    // Sanjaq-filtered members based on selected chips in SanjaqManagementCard
+                    val displayedMembers = if (selectedSanjaqs.isEmpty()) members else members.filter { it.subGroup in selectedSanjaqs }
+                    val displayedMemberIds = displayedMembers.map { it.id }.toSet()
+                    val displayedRecords = displayedMembers.mapNotNull { attendanceMap[it.id] }
 
-                    val sub1Present = sub1Records.count { it.status == AttendanceStatus.PRESENT }
-                    val sub1Absent = sub1Records.count { it.status == AttendanceStatus.ABSENT }
-                    val sub1Excused = sub1Records.count { it.status == AttendanceStatus.EXCUSED }
-
-                    val sub2Present = sub2Records.count { it.status == AttendanceStatus.PRESENT }
-                    val sub2Absent = sub2Records.count { it.status == AttendanceStatus.ABSENT }
-                    val sub2Excused = sub2Records.count { it.status == AttendanceStatus.EXCUSED }
-
-                    val displayedTotalMembersCount = when (selectedSubGroupFilter) {
-                        1 -> sub1Members.size + sub1LeaderCount
-                        2 -> sub2Members.size + sub2LeaderCount
-                        else -> members.size + sub1LeaderCount + sub2LeaderCount
-                    }
-
-                    val displayedPresentCount = when (selectedSubGroupFilter) {
-                        1 -> sub1Present
-                        2 -> sub2Present
-                        else -> sub1Present + sub2Present
-                    }
-
-                    val displayedAbsentCount = when (selectedSubGroupFilter) {
-                        1 -> sub1Absent
-                        2 -> sub2Absent
-                        else -> sub1Absent + sub2Absent
-                    }
-
-                    val displayedExcusedCount = when (selectedSubGroupFilter) {
-                        1 -> sub1Excused
-                        2 -> sub2Excused
-                        else -> sub1Excused + sub2Excused
-                    }
+                    val displayedPresentCount = displayedRecords.count { it.status == AttendanceStatus.PRESENT }
+                    val displayedAbsentCount = displayedRecords.count { it.status == AttendanceStatus.ABSENT }
+                    val displayedExcusedCount = displayedRecords.count { it.status == AttendanceStatus.EXCUSED }
+                    val displayedTotalMembersCount = displayedMembers.size
 
                     val totalConsidered = (displayedPresentCount + displayedAbsentCount + displayedExcusedCount).coerceAtLeast(displayedTotalMembersCount)
                     val rate = if (totalConsidered > 0) {
                         (displayedPresentCount / totalConsidered.toFloat()) * 100f
                     } else 0f
 
-                    val existingSubGroups = (members.map { it.subGroup } + listOf(1, 2)).distinct().filter { it > 0 }.sorted()
-
-                    // Subgroup filtered members
-                    val displayedMembers = when (selectedSubGroupFilter) {
-                        0 -> members
-                        else -> members.filter { it.subGroup == selectedSubGroupFilter }
-                    }
+                    val availableSanjaqNumbers = (members.map { it.subGroup } + listOf(1, 2, 3, 4) + currentGroupSanjaqs.map { it.sanjaqNumber }).distinct().filter { it > 0 }.sorted()
 
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
@@ -554,89 +522,34 @@ fun GroupLeadScreen(
                             }
                         }
 
-                        // Attendance Rate Card
-                        item {
-                            ElevatedCard(
-                                shape = RoundedCornerShape(18.dp),
-                                colors = CardDefaults.elevatedCardColors(
-                                    containerColor = MaterialTheme.colorScheme.surface
-                                ),
-                                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    // Total count on top with NO label text (per user request)
-                                    Text(
-                                        text = "$displayedTotalMembersCount",
-                                        style = MaterialTheme.typography.displaySmall,
-                                        fontWeight = FontWeight.Black,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.testTag("attendance_rate_total_count")
-                                    )
+                        // 3 Key Bayraq Personnel Directory & Attendance Card (مەسئۇل، ئەركان، ئىدارى)
+                        if (group != null) {
+                            item {
+                                BayraqLeadersCard(
+                                    group = group,
+                                    viewModel = viewModel,
+                                    s = s
+                                )
+                            }
 
-                                    Spacer(modifier = Modifier.height(6.dp))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column {
-                                            Text(
-                                                text = s.attendanceRate,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            Text(
-                                                text = "${String.format(Locale.US, "%.0f", rate)}%",
-                                                style = MaterialTheme.typography.headlineMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-
-                                        // Status Count Badges (Present, Absent, Excused) - NO LATE
-                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            MiniStatBadge(s.statusPresent, displayedPresentCount.toString(), PresentGreenContainer, PresentGreen)
-                                            MiniStatBadge(s.statusAbsent, displayedAbsentCount.toString(), AbsentRedContainer, AbsentRed)
-                                            MiniStatBadge(s.statusExcused, displayedExcusedCount.toString(), ExcusedBlueContainer, ExcusedBlue)
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(14.dp))
-
-                                    // Mark All Present Button
-                                    Button(
-                                        onClick = { viewModel.markAllPresent() },
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.primary
-                                        ),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .testTag("mark_all_present_button")
-                                    ) {
-                                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = s.markAllPresent,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
+                            // 4 Sanjaqs Multi-Select & Dynamic Consolidated Calculation Card
+                            item {
+                                SanjaqManagementCard(
+                                    group = group,
+                                    viewModel = viewModel,
+                                    s = s
+                                )
                             }
                         }
 
-                        // Duty Sub-Group Selection & Configuration Card (1-تەلەپ)
+                        // Duty Sanjaq Selection & Configuration Card (نۆۋەتچى سانجاقلارنى كۆرسىتىش ۋە بېكىتىش - بىر ياكى بىر قانچىنى تاللاش)
                         if (group != null) {
                             item {
-                                val currentDutySg = if (group.dutySubGroup > 0) group.dutySubGroup else 1
+                                val currentDutySgs = viewModel.parseDutySubGroups(group.dutySubGroupCustomName, group.dutySubGroup)
                                 val dutySgName = if (group.dutySubGroupCustomName.isNotBlank()) group.dutySubGroupCustomName
-                                    else if (currentDutySg == 1) s.subGroup1
-                                    else if (currentDutySg == 2) s.subGroup2
-                                    else "$currentDutySg${s.subGroupUnit}"
+                                    else currentDutySgs.joinToString("، ") { sg ->
+                                        currentGroupSanjaqs.find { it.sanjaqNumber == sg }?.sanjaqCustomName?.ifBlank { null } ?: "$sg-سانجاق"
+                                    }
 
                                 ElevatedCard(
                                     shape = RoundedCornerShape(16.dp),
@@ -662,7 +575,7 @@ fun GroupLeadScreen(
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
                                                 Text(
-                                                    text = s.dutySubGroupTitle,
+                                                    text = "نۆۋەتچى سانجاقلار:",
                                                     style = MaterialTheme.typography.titleSmall,
                                                     fontWeight = FontWeight.Bold,
                                                     color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -685,34 +598,45 @@ fun GroupLeadScreen(
                                         Spacer(modifier = Modifier.height(8.dp))
 
                                         Text(
-                                            text = s.selectDutySubGroup + ":",
+                                            text = "نۆۋەتچى سانجاقلارنى تاللاڭ (بىر ياكى بىر قانچىنى بىرلا ۋاقىتتا تاللىغىلى بولىدۇ):",
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Medium,
                                             color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                                         )
 
-                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Spacer(modifier = Modifier.height(6.dp))
 
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            existingSubGroups.forEach { sg ->
-                                                val isSelected = currentDutySg == sg
+                                            availableSanjaqNumbers.forEach { sg ->
+                                                val isSelected = currentDutySgs.contains(sg)
+                                                val sName = currentGroupSanjaqs.find { it.sanjaqNumber == sg }?.sanjaqCustomName?.ifBlank { null }
+                                                    ?: "$sg-سانجاق"
                                                 FilterChip(
                                                     selected = isSelected,
                                                     onClick = {
-                                                        viewModel.setGroupDutySubGroup(
+                                                        val newSelected = if (currentDutySgs.contains(sg)) {
+                                                            if (currentDutySgs.size > 1) currentDutySgs - sg else currentDutySgs
+                                                        } else {
+                                                            (currentDutySgs + sg).sorted()
+                                                        }
+                                                        val namesList = newSelected.joinToString("، ") { num ->
+                                                            currentGroupSanjaqs.find { it.sanjaqNumber == num }?.sanjaqCustomName?.ifBlank { null } ?: "$num-سانجاق"
+                                                        }
+                                                        viewModel.setGroupDutySubGroups(
                                                             groupId = group.id,
-                                                            dutySubGroup = sg,
+                                                            dutySubGroups = newSelected,
                                                             notes = group.dutyNotes,
-                                                            customName = group.dutySubGroupCustomName
+                                                            customName = namesList
                                                         )
                                                     },
                                                     label = {
                                                         Text(
-                                                            text = if (sg == 1) s.subGroup1 else if (sg == 2) s.subGroup2 else "$sg${s.subGroupUnit}",
+                                                            text = sName,
                                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                                             fontSize = 12.sp
                                                         )
@@ -729,8 +653,7 @@ fun GroupLeadScreen(
                                                     colors = FilterChipDefaults.filterChipColors(
                                                         selectedContainerColor = MaterialTheme.colorScheme.secondary,
                                                         selectedLabelColor = MaterialTheme.colorScheme.onSecondary
-                                                    ),
-                                                    modifier = Modifier.weight(1f)
+                                                    )
                                                 )
                                             }
                                         }
@@ -739,297 +662,25 @@ fun GroupLeadScreen(
                             }
                         }
 
-                        // Subgroup side-by-side tabs filter
+                        // Mark All Present Button for active filtered sanjaqs
                         item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Button(
+                                onClick = { viewModel.markAllPresent() },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("mark_all_present_button")
                             ) {
-                                FilterChip(
-                                    selected = selectedSubGroupFilter == 0,
-                                    onClick = { selectedSubGroupFilter = 0 },
-                                    label = { Text(s.all, fontWeight = FontWeight.Bold) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    ),
-                                    modifier = Modifier.weight(1f)
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = s.markAllPresent,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
                                 )
-                                existingSubGroups.forEach { sg ->
-                                    FilterChip(
-                                        selected = selectedSubGroupFilter == sg,
-                                        onClick = { selectedSubGroupFilter = sg },
-                                        label = { Text(if (sg == 1) s.subGroup1 else if (sg == 2) s.subGroup2 else "$sg${s.subGroupUnit}", fontWeight = FontWeight.Bold) },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = if (sg % 2 == 1) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                                            selectedLabelColor = if (sg % 2 == 1) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
-                                        ),
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                                Surface(
-                                    onClick = { showDuplicateSubGroupDialog = true },
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    modifier = Modifier.size(34.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                        Icon(
-                                            imageVector = Icons.Default.Add,
-                                            contentDescription = s.addSubGroup,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // When 'All' is selected, show side-by-side comparative breakdown of SubGroup 1 and SubGroup 2 stats
-                        if (selectedSubGroupFilter == 0) {
-                            item {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    // 1-گۇرۇپ Card
-                                    ElevatedCard(
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = CardDefaults.elevatedCardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                        ),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Column(modifier = Modifier.padding(12.dp)) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = s.subGroup1,
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
-                                                Text(
-                                                    text = "${sub1Members.size + sub1LeaderCount}",
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.Black
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                MiniStatBadge(s.statusPresent, "$sub1Present", PresentGreenContainer, PresentGreen, modifier = Modifier.weight(1f))
-                                                MiniStatBadge(s.statusAbsent, "$sub1Absent", AbsentRedContainer, AbsentRed, modifier = Modifier.weight(1f))
-                                                MiniStatBadge(s.statusExcused, "$sub1Excused", ExcusedBlueContainer, ExcusedBlue, modifier = Modifier.weight(1f))
-                                            }
-                                        }
-                                    }
-
-                                    // 2-گۇرۇپ Card
-                                    ElevatedCard(
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = CardDefaults.elevatedCardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                        ),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Column(modifier = Modifier.padding(12.dp)) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = s.subGroup2,
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.secondary
-                                                )
-                                                Text(
-                                                    text = "${sub2Members.size + sub2LeaderCount}",
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.Black
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                MiniStatBadge(s.statusPresent, "$sub2Present", PresentGreenContainer, PresentGreen, modifier = Modifier.weight(1f))
-                                                MiniStatBadge(s.statusAbsent, "$sub2Absent", AbsentRedContainer, AbsentRed, modifier = Modifier.weight(1f))
-                                                MiniStatBadge(s.statusExcused, "$sub2Excused", ExcusedBlueContainer, ExcusedBlue, modifier = Modifier.weight(1f))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Sub-group leader header with contact address if filtered
-                        if (selectedSubGroupFilter == 1 && group?.subLeader1?.isNotBlank() == true) {
-                            item {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = "${s.subGroup1LeaderLabel}: ${group.subLeader1}",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                        val ctx = androidx.compose.ui.platform.LocalContext.current
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(top = 6.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            if (!group.subLeader1Contact.isNullOrBlank()) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                                    modifier = Modifier.clickable {
-                                                        com.example.util.ContactUtils.openPhoneCall(ctx, group.subLeader1Contact)
-                                                    }
-                                                ) {
-                                                    Text(
-                                                        text = "📞 ${group.subLeader1Contact}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                    )
-                                                }
-                                            }
-                                            if (!group.subLeader1Telegram.isNullOrBlank()) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = Color(0xFF0088CC).copy(alpha = 0.18f),
-                                                    modifier = Modifier.clickable {
-                                                        com.example.util.ContactUtils.openTelegram(ctx, group.subLeader1Telegram)
-                                                    }
-                                                ) {
-                                                    Text(
-                                                        text = "✈ ${group.subLeader1Telegram}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFF0088CC),
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                    )
-                                                }
-                                            }
-                                            if (!group.subLeader1Whatsapp.isNullOrBlank()) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = Color(0xFF25D366).copy(alpha = 0.18f),
-                                                    modifier = Modifier.clickable {
-                                                        com.example.util.ContactUtils.openWhatsApp(ctx, group.subLeader1Whatsapp)
-                                                    }
-                                                ) {
-                                                    Text(
-                                                        text = "💬 ${group.subLeader1Whatsapp}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFF1EBE5D),
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else if (selectedSubGroupFilter == 2 && group?.subLeader2?.isNotBlank() == true) {
-                            item {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = "${s.subGroup2LeaderLabel}: ${group.subLeader2}",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                        val ctx = androidx.compose.ui.platform.LocalContext.current
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(top = 6.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            if (!group.subLeader2Contact.isNullOrBlank()) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                                    modifier = Modifier.clickable {
-                                                        com.example.util.ContactUtils.openPhoneCall(ctx, group.subLeader2Contact)
-                                                    }
-                                                ) {
-                                                    Text(
-                                                        text = "📞 ${group.subLeader2Contact}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                    )
-                                                }
-                                            }
-                                            if (!group.subLeader2Telegram.isNullOrBlank()) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = Color(0xFF0088CC).copy(alpha = 0.18f),
-                                                    modifier = Modifier.clickable {
-                                                        com.example.util.ContactUtils.openTelegram(ctx, group.subLeader2Telegram)
-                                                    }
-                                                ) {
-                                                    Text(
-                                                        text = "✈ ${group.subLeader2Telegram}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFF0088CC),
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                    )
-                                                }
-                                            }
-                                            if (!group.subLeader2Whatsapp.isNullOrBlank()) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = Color(0xFF25D366).copy(alpha = 0.18f),
-                                                    modifier = Modifier.clickable {
-                                                        com.example.util.ContactUtils.openWhatsApp(ctx, group.subLeader2Whatsapp)
-                                                    }
-                                                ) {
-                                                    Text(
-                                                        text = "💬 ${group.subLeader2Whatsapp}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFF1EBE5D),
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         }
 
@@ -1060,6 +711,9 @@ fun GroupLeadScreen(
                                                 note = record?.note.orEmpty()
                                             )
                                         }
+                                    },
+                                    onClearStatus = {
+                                        viewModel.unmarkAttendanceStatus(member.id)
                                     },
                                     onSaveNote = { newNote ->
                                         user.groupId?.let { gId ->
@@ -1528,9 +1182,15 @@ fun GroupLeadScreen(
                 }
 
                 2 -> {
-                    // TAB 2: ATTENDANCE HISTORY (يوقلىما تارىخى)
+                    // TAB 2: ATTENDANCE HISTORY & ANALYTICS (يوقلىما تارىخى ۋە نىسبەت تەھلىلى)
                     val groupRecords = allAttendance.filter { it.groupId == user.groupId }
                     val datesWithRecords = groupRecords.map { it.date }.distinct().sortedDescending()
+
+                    val totalPresentAll = groupRecords.count { it.status == AttendanceStatus.PRESENT }
+                    val totalAbsentAll = groupRecords.count { it.status == AttendanceStatus.ABSENT }
+                    val totalExcusedAll = groupRecords.count { it.status == AttendanceStatus.EXCUSED }
+                    val totalAllRecords = totalPresentAll + totalAbsentAll + totalExcusedAll
+                    val overallRate = if (totalAllRecords > 0) (totalPresentAll / totalAllRecords.toFloat()) * 100f else 0f
 
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
@@ -1538,12 +1198,77 @@ fun GroupLeadScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         item {
-                            Text(
-                                text = s.attendanceHistory,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = s.attendanceHistory,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Button(
+                                    onClick = { showLeadAnalyticsDialog = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Assessment, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("تەپسىلىي كۆپ كۈنلۈك تەھلىل", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        // Group Overall Rate & Analytics Summary Card
+                        item {
+                            ElevatedCard(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    val excusedRateAll = if (totalAllRecords > 0) (totalExcusedAll.toFloat() / totalAllRecords) * 100f else 0f
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "ئومۇمىي يوقلىما نىسبىتى",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text(
+                                                text = "${String.format(Locale.US, "%.1f", overallRate)}%",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Black,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                text = "رۇخسەت: ${String.format(Locale.US, "%.1f", excusedRateAll)}%",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ExcusedBlue
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        MiniStatBadge(s.statusPresent, "$totalPresentAll (${if (totalAllRecords > 0) String.format(Locale.US, "%.0f%%", (totalPresentAll.toFloat()/totalAllRecords)*100f) else "0%"})", PresentGreenContainer, PresentGreen)
+                                        MiniStatBadge(s.statusAbsent, "$totalAbsentAll (${if (totalAllRecords > 0) String.format(Locale.US, "%.0f%%", (totalAbsentAll.toFloat()/totalAllRecords)*100f) else "0%"})", AbsentRedContainer, AbsentRed)
+                                        MiniStatBadge(s.statusExcused, "$totalExcusedAll (${if (totalAllRecords > 0) String.format(Locale.US, "%.0f%%", (totalExcusedAll.toFloat()/totalAllRecords)*100f) else "0%"})", ExcusedBlueContainer, ExcusedBlue)
+                                    }
+                                }
+                            }
                         }
 
                         if (datesWithRecords.isEmpty()) {
@@ -1558,6 +1283,7 @@ fun GroupLeadScreen(
                                 val eCount = dayRecords.count { it.status == AttendanceStatus.EXCUSED }
                                 val total = (pCount + aCount + eCount).coerceAtLeast(1)
                                 val dayRate = (pCount / total.toFloat()) * 100f
+                                val dayExcusedRate = (eCount / total.toFloat()) * 100f
 
                                 ElevatedCard(
                                     shape = RoundedCornerShape(14.dp),
@@ -1584,12 +1310,20 @@ fun GroupLeadScreen(
                                                 color = MaterialTheme.colorScheme.onSurface
                                             )
 
-                                            Text(
-                                                text = "${String.format(Locale.US, "%.0f", dayRate)}%",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
+                                            Column(horizontalAlignment = Alignment.End) {
+                                                Text(
+                                                    text = "يوقلىما: ${String.format(Locale.US, "%.0f", dayRate)}%",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = "رۇخسەت: ${String.format(Locale.US, "%.0f", dayExcusedRate)}%",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ExcusedBlue
+                                                )
+                                            }
                                         }
 
                                         Spacer(modifier = Modifier.height(8.dp))
@@ -1598,9 +1332,9 @@ fun GroupLeadScreen(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            MiniStatBadge(s.statusPresent, pCount.toString(), PresentGreenContainer, PresentGreen)
-                                            MiniStatBadge(s.statusAbsent, aCount.toString(), AbsentRedContainer, AbsentRed)
-                                            MiniStatBadge(s.statusExcused, eCount.toString(), ExcusedBlueContainer, ExcusedBlue)
+                                            MiniStatBadge(s.statusPresent, "$pCount (${String.format(Locale.US, "%.0f%%", (pCount.toFloat()/total)*100f)})", PresentGreenContainer, PresentGreen)
+                                            MiniStatBadge(s.statusAbsent, "$aCount (${String.format(Locale.US, "%.0f%%", (aCount.toFloat()/total)*100f)})", AbsentRedContainer, AbsentRed)
+                                            MiniStatBadge(s.statusExcused, "$eCount (${String.format(Locale.US, "%.0f%%", (eCount.toFloat()/total)*100f)})", ExcusedBlueContainer, ExcusedBlue)
                                         }
                                     }
                                 }
@@ -1797,12 +1531,22 @@ fun GroupLeadScreen(
         }
     }
 
+    val allSanjaqs by viewModel.allSanjaqLeaders.collectAsState()
+    val groupSanjaqs = allSanjaqs.filter { it.groupId == user.groupId }.sortedBy { it.sanjaqNumber }
+
     // Add Member Dialog
     if (showAddMemberDialog && user.groupId != null) {
         MemberDialog(
             groupId = user.groupId,
             language = language,
-            availableSubGroups = (members.map { it.subGroup } + listOf(1, 2)).distinct().filter { it > 0 }.sorted(),
+            sanjaqs = groupSanjaqs,
+            onAddNewSanjaq = { sanjaqName, onAdded ->
+                viewModel.addNewSanjaqWithDetails(
+                    groupId = user.groupId,
+                    customName = sanjaqName,
+                    onCreated = onAdded
+                )
+            },
             onDismiss = { showAddMemberDialog = false },
             onSave = { name, subGroup, contactAddress, telegramContact, whatsappContact, otherContact ->
                 viewModel.addMember(
@@ -1833,7 +1577,14 @@ fun GroupLeadScreen(
             initialMember = editingMember,
             groupId = user.groupId,
             language = language,
-            availableSubGroups = (members.map { it.subGroup } + listOf(1, 2)).distinct().filter { it > 0 }.sorted(),
+            sanjaqs = groupSanjaqs,
+            onAddNewSanjaq = { sanjaqName, onAdded ->
+                viewModel.addNewSanjaqWithDetails(
+                    groupId = user.groupId,
+                    customName = sanjaqName,
+                    onCreated = onAdded
+                )
+            },
             onDismiss = { editingMember = null },
             onSave = { name, subGroup, contactAddress, telegramContact, whatsappContact, otherContact ->
                 editingMember?.let { m ->
@@ -1881,6 +1632,34 @@ fun GroupLeadScreen(
                     Text(s.cancel)
                 }
             }
+        )
+    }
+
+    // Supabase Cloud Sync & Backup Dialog
+    if (showSupabaseSyncDialog) {
+        SupabaseSyncManagementDialog(
+            viewModel = viewModel,
+            onDismiss = { showSupabaseSyncDialog = false }
+        )
+    }
+
+    // Consolidated App Settings Dialog (Gear Menu ⚙️)
+    if (showGroupLeadSettingsDialog) {
+        GroupLeadSettingsDialog(
+            viewModel = viewModel,
+            s = s,
+            onOpenSupabaseSync = { showSupabaseSyncDialog = true },
+            onDismiss = { showGroupLeadSettingsDialog = false }
+        )
+    }
+
+    // Comprehensive Attendance Analytics & Reports Dialog (Restricted to this group only)
+    if (showLeadAnalyticsDialog) {
+        MultiDateAnalyticsDialog(
+            initialGroupId = user.groupId ?: 1L,
+            restrictToGroupOnly = true,
+            viewModel = viewModel,
+            onDismiss = { showLeadAnalyticsDialog = false }
         )
     }
 }
@@ -2016,12 +1795,14 @@ private fun MemberRosterRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MemberDialog(
     groupId: Long,
     language: Language,
-    availableSubGroups: List<Int> = listOf(1, 2),
+    sanjaqs: List<com.example.data.model.SanjaqLeaderEntity> = emptyList(),
     initialMember: MemberEntity? = null,
+    onAddNewSanjaq: ((name: String, onAdded: (Int) -> Unit) -> Unit)? = null,
     onDismiss: () -> Unit,
     onSave: (name: String, subGroup: Int, contactAddress: String, telegramContact: String, whatsappContact: String, otherContact: String) -> Unit
 ) {
@@ -2034,6 +1815,17 @@ fun MemberDialog(
     var whatsappContact by remember { mutableStateOf(initialMember?.whatsappContact ?: "") }
     var otherContact by remember { mutableStateOf(initialMember?.otherContact ?: "") }
     var hasError by remember { mutableStateOf(false) }
+    var showCreateSanjaqPrompt by remember { mutableStateOf(false) }
+
+    val existingNums = (sanjaqs.map { it.sanjaqNumber } + listOf(1, 2, 3, 4)).distinct().sorted()
+    val sanjaqMap = sanjaqs.associateBy { it.sanjaqNumber }
+    val displaySanjaqs = existingNums.map { num ->
+        sanjaqMap[num] ?: com.example.data.model.SanjaqLeaderEntity(
+            groupId = groupId,
+            sanjaqNumber = num,
+            sanjaqCustomName = "$num-سانجاق"
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2065,27 +1857,49 @@ fun MemberDialog(
                         .testTag("member_name_input")
                 )
 
-                // Sub-group selector
-                Text(
-                    text = s.selectSubGroup,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // Sanjaq selector with dynamic Sanjaqs and + button
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    availableSubGroups.forEach { sg ->
+                    Text(
+                        text = "ئەزا قوشۇلىدىغان سانجاقنى تاللاڭ:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    if (onAddNewSanjaq != null) {
+                        IconButton(
+                            onClick = { showCreateSanjaqPrompt = true },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Add Sanjaq",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    displaySanjaqs.forEach { sj ->
+                        val isSelected = subGroup == sj.sanjaqNumber
+                        val labelText = sj.sanjaqCustomName.ifBlank { "${sj.sanjaqNumber}-سانجاق" }
                         FilterChip(
-                            selected = subGroup == sg,
-                            onClick = { subGroup = sg },
-                            label = { Text(if (sg == 1) s.subGroup1 else if (sg == 2) s.subGroup2 else "$sg${s.subGroupUnit}", fontWeight = FontWeight.Bold) },
+                            selected = isSelected,
+                            onClick = { subGroup = sj.sanjaqNumber },
+                            label = { Text(labelText, fontWeight = FontWeight.Bold, fontSize = 12.sp) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = if (sg % 2 == 1) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                                selectedLabelColor = if (sg % 2 == 1) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
-                            ),
-                            modifier = Modifier.weight(1f)
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
                         )
                     }
                 }
@@ -2188,6 +2002,47 @@ fun MemberDialog(
             }
         }
     )
+
+    if (showCreateSanjaqPrompt && onAddNewSanjaq != null) {
+        val nextNum = if (displaySanjaqs.isEmpty()) 1 else (displaySanjaqs.maxOf { it.sanjaqNumber } + 1)
+        var newSanjaqNameInput by remember { mutableStateOf("$nextNum-سانجاق") }
+        AlertDialog(
+            onDismissRequest = { showCreateSanjaqPrompt = false },
+            title = {
+                Text("يېڭى سانجاق قوشۇش", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            },
+            text = {
+                Column {
+                    Text("سانجاق نامىنى كىرگۈزۈڭ، قوشۇلغاندىن كېيىن ئاپتوماتىك تاللىنىدۇ:")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = newSanjaqNameInput,
+                        onValueChange = { newSanjaqNameInput = it },
+                        label = { Text("سانجاق نامى") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onAddNewSanjaq(newSanjaqNameInput.trim()) { createdNum ->
+                            subGroup = createdNum
+                        }
+                        showCreateSanjaqPrompt = false
+                    }
+                ) {
+                    Text("قوشۇش")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateSanjaqPrompt = false }) {
+                    Text(s.cancel)
+                }
+            }
+        )
+    }
 }
 
 @Composable

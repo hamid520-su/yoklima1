@@ -10,6 +10,7 @@ import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.AppDatabase
+import com.example.data.repository.AttendanceRepository
 import com.example.data.model.AttendanceRecordEntity
 import com.example.data.model.AttendanceStatus
 import com.example.data.model.GroupEntity
@@ -17,7 +18,9 @@ import com.example.data.model.MemberEntity
 import com.example.data.model.MemberStatus
 import com.example.data.model.UserEntity
 import com.example.data.model.UserRole
-import com.example.data.repository.AttendanceRepository
+import com.example.data.supabase.SupabaseConnectionStatus
+import com.example.data.supabase.SupabaseSyncResult
+import com.example.data.supabase.SupabaseSyncService
 import com.example.i18n.AppStrings
 import com.example.i18n.Language
 import com.example.i18n.LocalizedStrings
@@ -51,7 +54,10 @@ data class MemberPeriodStat(
     val lateDays: Int,
     val totalCheckedDays: Int,
     val attendanceRate: Float
-)
+) {
+    val excusedRate: Float
+        get() = if (totalCheckedDays > 0) (excusedDays.toFloat() / totalCheckedDays) * 100f else 0f
+}
 
 data class GroupStat(
     val group: GroupEntity,
@@ -62,7 +68,13 @@ data class GroupStat(
     val lateCount: Int,
     val excusedCount: Int,
     val attendanceRate: Float
-)
+) {
+    val excusedRate: Float
+        get() {
+            val total = (presentCount + absentCount + excusedCount + lateCount).coerceAtLeast(totalMembers)
+            return if (total > 0) (excusedCount.toFloat() / total) * 100f else 0f
+        }
+}
 
 data class PeriodGroupStat(
     val group: GroupEntity,
@@ -71,7 +83,13 @@ data class PeriodGroupStat(
     val absentCount: Int,
     val excusedCount: Int,
     val attendanceRate: Float
-)
+) {
+    val excusedRate: Float
+        get() {
+            val total = (presentCount + absentCount + excusedCount).coerceAtLeast(totalRecords)
+            return if (total > 0) (excusedCount.toFloat() / total) * 100f else 0f
+        }
+}
 
 data class EquipmentSummaryStats(
     val totalCount: Int,
@@ -167,6 +185,229 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
     val allNoticeReceipts: StateFlow<List<com.example.data.model.NoticeReceiptEntity>> = repository.allNoticeReceipts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allGroupLeaders: StateFlow<List<com.example.data.model.GroupLeaderEntity>> = repository.allGroupLeaders
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allGroupLeaderAttendance: StateFlow<List<com.example.data.model.GroupLeaderAttendanceEntity>> = repository.allGroupLeaderAttendance
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allSanjaqLeaders: StateFlow<List<com.example.data.model.SanjaqLeaderEntity>> = repository.allSanjaqLeaders
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allDeviceSessions: StateFlow<List<com.example.data.model.DeviceSessionEntity>> = repository.allDeviceSessions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Leader Attendance Visibility Toggle (Admin Settings ⚙️)
+    private val _leaderAttendanceVisible = MutableStateFlow(appPrefs.getBoolean("leader_attendance_visible", true))
+    val leaderAttendanceVisible: StateFlow<Boolean> = _leaderAttendanceVisible.asStateFlow()
+
+    fun toggleLeaderAttendanceVisible() {
+        val next = !_leaderAttendanceVisible.value
+        _leaderAttendanceVisible.value = next
+        appPrefs.edit().putBoolean("leader_attendance_visible", next).apply()
+    }
+
+    // Pull-to-Refresh State
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    fun triggerPullToRefresh() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                if (_isAutoSyncEnabled.value) {
+                    pullAllFromSupabase()
+                } else {
+                    kotlinx.coroutines.delay(650)
+                }
+            } catch (e: Exception) {
+                // ignore
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    // Multi-selected Sanjaqs state for dynamic consolidated calculations
+    private val _selectedSanjaqNumbers = MutableStateFlow<Set<Int>>(setOf(1, 2, 3, 4))
+    val selectedSanjaqNumbers: StateFlow<Set<Int>> = _selectedSanjaqNumbers.asStateFlow()
+
+    fun toggleSanjaqSelection(sanjaqNum: Int) {
+        val current = _selectedSanjaqNumbers.value.toMutableSet()
+        if (current.contains(sanjaqNum)) {
+            if (current.size > 1) { // Keep at least one selected
+                current.remove(sanjaqNum)
+            }
+        } else {
+            current.add(sanjaqNum)
+        }
+        _selectedSanjaqNumbers.value = current
+    }
+
+    fun selectAllSanjaqs(sanjaqNums: Set<Int>) {
+        _selectedSanjaqNumbers.value = sanjaqNums
+    }
+
+    // Device Management & Remote Termination
+    val currentDeviceId: String by lazy {
+        var devId = appPrefs.getString("app_device_uuid", "") ?: ""
+        if (devId.isBlank()) {
+            devId = try {
+                android.provider.Settings.Secure.getString(
+                    getApplication<Application>().contentResolver,
+                    android.provider.Settings.Secure.ANDROID_ID
+                ) ?: java.util.UUID.randomUUID().toString()
+            } catch (e: Exception) {
+                java.util.UUID.randomUUID().toString()
+            }
+            appPrefs.edit().putString("app_device_uuid", devId).apply()
+        }
+        devId
+    }
+
+    private val _isCurrentDeviceBlocked = MutableStateFlow(false)
+    val isCurrentDeviceBlocked: StateFlow<Boolean> = _isCurrentDeviceBlocked.asStateFlow()
+
+    fun checkAndRegisterCurrentDevice(userName: String = "") {
+        viewModelScope.launch {
+            val devName = "${android.os.Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${android.os.Build.MODEL}"
+            val osVer = "Android ${android.os.Build.VERSION.RELEASE}"
+            repository.registerOrUpdateDeviceSession(currentDeviceId, devName, osVer, userName.ifBlank { "باشقۇرغۇچى / ئەزا" })
+            val blocked = repository.isDeviceBlocked(currentDeviceId)
+            _isCurrentDeviceBlocked.value = blocked
+        }
+    }
+
+    fun terminateDevice(deviceId: String) {
+        viewModelScope.launch {
+            repository.setDeviceBlockStatus(deviceId, true, "باشقۇرغۇچى تەرىپىدىن توختىتىلدى")
+            if (deviceId == currentDeviceId) {
+                _isCurrentDeviceBlocked.value = true
+            }
+            Toast.makeText(getApplication(), "تېلېفون مۇۋەپپەقىيەتلىك توختىتىلدى", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun restoreDevice(deviceId: String) {
+        viewModelScope.launch {
+            repository.setDeviceBlockStatus(deviceId, false, "")
+            if (deviceId == currentDeviceId) {
+                _isCurrentDeviceBlocked.value = false
+            }
+            Toast.makeText(getApplication(), "تېلېفون ئەسلىگە كەلتۈرۈلدى", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun deleteDevice(deviceId: String) {
+        viewModelScope.launch {
+            repository.deleteDeviceSession(deviceId)
+            Toast.makeText(getApplication(), "ئۈسكۈنە ئۆچۈرۈلدى", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Save Bayraq Leader Contact
+    fun saveBayraqLeader(leader: com.example.data.model.GroupLeaderEntity) {
+        viewModelScope.launch {
+            repository.saveOrUpdateGroupLeader(leader)
+            Toast.makeText(getApplication(), strings.savedSuccess, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Save Bayraq Leader Attendance
+    fun saveBayraqLeaderAttendance(groupId: Long, roleType: String, status: String, note: String = "") {
+        viewModelScope.launch {
+            repository.saveGroupLeaderAttendance(groupId, roleType, _selectedDate.value, status, note)
+        }
+    }
+
+    // Save Sanjaq Leadership
+    fun saveSanjaqLeader(sanjaq: com.example.data.model.SanjaqLeaderEntity) {
+        viewModelScope.launch {
+            repository.saveOrUpdateSanjaqLeader(sanjaq)
+            Toast.makeText(getApplication(), strings.savedSuccess, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Add new Sanjaq to a group
+    fun addNewSanjaq(groupId: Long) {
+        viewModelScope.launch {
+            val existing = allSanjaqLeaders.value.filter { it.groupId == groupId }
+            val nextNum = if (existing.isEmpty()) 1 else (existing.maxOf { it.sanjaqNumber } + 1)
+            val newSanjaq = com.example.data.model.SanjaqLeaderEntity(
+                groupId = groupId,
+                sanjaqNumber = nextNum,
+                sanjaqCustomName = "$nextNum-سانجاق",
+                leaderName = "",
+                leaderPhone = "",
+                deputyName = "",
+                deputyPhone = ""
+            )
+            repository.saveOrUpdateSanjaqLeader(newSanjaq)
+            _selectedSanjaqNumbers.value = _selectedSanjaqNumbers.value + nextNum
+            Toast.makeText(getApplication(), "$nextNum-سانجاق قوشۇلدى", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun addNewSanjaqWithDetails(
+        groupId: Long,
+        customName: String,
+        leaderName: String = "",
+        leaderPhone: String = "",
+        leaderTelegram: String = "",
+        leaderWhatsapp: String = "",
+        deputyName: String = "",
+        deputyPhone: String = "",
+        deputyTelegram: String = "",
+        deputyWhatsapp: String = "",
+        onCreated: (Int) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val existing = allSanjaqLeaders.value.filter { it.groupId == groupId }
+            val nextNum = if (existing.isEmpty()) 1 else (existing.maxOf { it.sanjaqNumber } + 1)
+            val finalName = customName.ifBlank { "$nextNum-سانجاق" }
+            val newSanjaq = com.example.data.model.SanjaqLeaderEntity(
+                groupId = groupId,
+                sanjaqNumber = nextNum,
+                sanjaqCustomName = finalName,
+                leaderName = leaderName.trim(),
+                leaderPhone = leaderPhone.trim(),
+                leaderTelegram = leaderTelegram.trim(),
+                leaderWhatsapp = leaderWhatsapp.trim(),
+                deputyName = deputyName.trim(),
+                deputyPhone = deputyPhone.trim(),
+                deputyTelegram = deputyTelegram.trim(),
+                deputyWhatsapp = deputyWhatsapp.trim()
+            )
+            repository.saveOrUpdateSanjaqLeader(newSanjaq)
+            _selectedSanjaqNumbers.value = _selectedSanjaqNumbers.value + nextNum
+            Toast.makeText(getApplication(), "$finalName مۇۋەپپەقىيەتلىك قوشۇلدى", Toast.LENGTH_SHORT).show()
+            onCreated(nextNum)
+        }
+    }
+
+    // Broadcast Announcement / Emergency Notice with System Notification Signal
+    fun broadcastNoticeWithNotification(title: String, content: String, author: String, groupId: Long = 0L, priority: String = "URGENT") {
+        viewModelScope.launch {
+            val grpName = if (groupId == 0L) "بارلىق بايراق ۋە قىسىملار" else (groups.value.find { it.id == groupId }?.name ?: "")
+            val id = repository.addDailyUpdate(groupId, grpName, author, title, content, _selectedDate.value, priority)
+            
+            // Deliver notification locally & trigger Android high priority status notification
+            try {
+                com.example.util.AppNotificationManager.showUrgentNotification(
+                    context = getApplication(),
+                    notificationId = id.toInt(),
+                    title = title,
+                    message = content,
+                    author = author,
+                    groupTargetName = grpName
+                )
+            } catch (e: Exception) {
+                // ignore
+            }
+            Toast.makeText(getApplication(), "ئۇقتۇرۇش تارقىتىلدى ۋە بارلىق تېلېفونلارغا سىگنال ئەۋەتىلدى", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // Member Search Across Groups (Requirement 3)
     private val _memberSearchQuery = MutableStateFlow("")
     val memberSearchQuery: StateFlow<String> = _memberSearchQuery.asStateFlow()
@@ -229,20 +470,35 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
         Toast.makeText(getApplication(), strings.dutyGroupStatusLabel + ": " + (groups.value.find { it.id == groupId }?.name ?: ""), Toast.LENGTH_SHORT).show()
     }
 
-    fun setGroupDutySubGroup(groupId: Long, dutySubGroup: Int, notes: String = "", customName: String = "") {
+    fun parseDutySubGroups(customName: String, fallbackSingle: Int): List<Int> {
+        val extracted = customName.split(",", "،", ";", " ")
+            .mapNotNull { it.trim().filter { ch -> ch.isDigit() }.toIntOrNull() }
+            .filter { it in 1..20 }
+            .distinct()
+        if (extracted.isNotEmpty()) return extracted.sorted()
+        val single = if (fallbackSingle > 0) fallbackSingle else 1
+        return listOf(single)
+    }
+
+    fun setGroupDutySubGroups(groupId: Long, dutySubGroups: List<Int>, notes: String = "", customName: String = "") {
         viewModelScope.launch {
             val grp = groups.value.find { it.id == groupId }
             if (grp != null) {
+                val sgs = if (dutySubGroups.isEmpty()) listOf(1) else dutySubGroups.sorted()
+                val finalCustomName = if (customName.isNotBlank()) customName else sgs.joinToString("، ") { "$it-سانجاق" }
                 val updated = grp.copy(
-                    dutySubGroup = dutySubGroup,
+                    dutySubGroup = sgs.first(),
                     dutyNotes = notes,
-                    dutySubGroupCustomName = customName
+                    dutySubGroupCustomName = finalCustomName
                 )
                 repository.updateGroup(updated)
-                val subName = if (customName.isNotBlank()) customName else if (dutySubGroup == 1) strings.subGroup1 else if (dutySubGroup == 2) strings.subGroup2 else "$dutySubGroup${strings.subGroupUnit}"
-                Toast.makeText(getApplication(), "${strings.dutySubGroupTitle}: $subName (${strings.savedSuccessfully})", Toast.LENGTH_SHORT).show()
+                Toast.makeText(getApplication(), "${strings.dutySubGroupTitle}: $finalCustomName (${strings.savedSuccessfully})", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    fun setGroupDutySubGroup(groupId: Long, dutySubGroup: Int, notes: String = "", customName: String = "") {
+        setGroupDutySubGroups(groupId, listOf(dutySubGroup), notes, customName)
     }
 
     // Active duty group object combined with group details
@@ -252,11 +508,12 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
 
     // Duty Group Attendance Details & Time calculation (Requirement 8)
     val dutyGroupAttendanceSummary: StateFlow<DutyGroupAttendanceSummary> = combine(
-        currentDutyGroupEntity,
-        allMembers,
-        allAttendance,
-        _selectedDate
-    ) { dutyGrp, members, records, date ->
+        combine(currentDutyGroupEntity, allMembers, allAttendance) { dutyGrp, members, records ->
+            Triple(dutyGrp, members, records)
+        },
+        _selectedDate,
+        allSanjaqLeaders
+    ) { (dutyGrp, members, records), date, sanjaqs ->
         if (dutyGrp == null) {
             DutyGroupAttendanceSummary()
         } else {
@@ -273,19 +530,34 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
                 SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(latestTimestamp))
             } else null
 
-            // Subgroup details
-            val sgNum = if (dutyGrp.dutySubGroup > 0) dutyGrp.dutySubGroup else 1
+            // Subgroups details (supports multiple selected duty sanjaqs)
+            val sgNums = parseDutySubGroups(dutyGrp.dutySubGroupCustomName, dutyGrp.dutySubGroup)
             val subName = if (dutyGrp.dutySubGroupCustomName.isNotBlank()) dutyGrp.dutySubGroupCustomName
-                else if (sgNum == 1) strings.subGroup1
-                else if (sgNum == 2) strings.subGroup2
-                else "$sgNum${strings.subGroupUnit}"
+                else sgNums.joinToString("، ") { "$it-سانجاق" }
 
-            val sgLeader = if (sgNum == 1) dutyGrp.subLeader1 else if (sgNum == 2) dutyGrp.subLeader2 else ""
-            val sgContact = if (sgNum == 1) dutyGrp.subLeader1Contact else if (sgNum == 2) dutyGrp.subLeader2Contact else ""
-            val sgTelegram = if (sgNum == 1) dutyGrp.subLeader1Telegram else if (sgNum == 2) dutyGrp.subLeader2Telegram else ""
-            val sgWhatsapp = if (sgNum == 1) dutyGrp.subLeader1Whatsapp else if (sgNum == 2) dutyGrp.subLeader2Whatsapp else ""
+            val allSgEntities = sanjaqs.filter { it.groupId == dutyGrp.id && it.sanjaqNumber in sgNums }
+            val sgLeaders = allSgEntities.mapNotNull { it.leaderName.ifBlank { null } }
+            val sgContacts = allSgEntities.mapNotNull { it.leaderPhone.ifBlank { null } }
+            val sgTelegrams = allSgEntities.mapNotNull { it.leaderTelegram.ifBlank { null } }
+            val sgWhatsapps = allSgEntities.mapNotNull { it.leaderWhatsapp.ifBlank { null } }
 
-            val sgMembers = grpMembers.filter { it.subGroup == sgNum }
+            val sgLeader = if (sgLeaders.isNotEmpty()) sgLeaders.joinToString(", ")
+                else if (sgNums.contains(1) && dutyGrp.subLeader1.isNotBlank()) dutyGrp.subLeader1
+                else if (sgNums.contains(2) && dutyGrp.subLeader2.isNotBlank()) dutyGrp.subLeader2 else ""
+
+            val sgContact = if (sgContacts.isNotEmpty()) sgContacts.joinToString(", ")
+                else if (sgNums.contains(1) && dutyGrp.subLeader1Contact.isNotBlank()) dutyGrp.subLeader1Contact
+                else if (sgNums.contains(2) && dutyGrp.subLeader2Contact.isNotBlank()) dutyGrp.subLeader2Contact else ""
+
+            val sgTelegram = if (sgTelegrams.isNotEmpty()) sgTelegrams.joinToString(", ")
+                else if (sgNums.contains(1) && dutyGrp.subLeader1Telegram.isNotBlank()) dutyGrp.subLeader1Telegram
+                else if (sgNums.contains(2) && dutyGrp.subLeader2Telegram.isNotBlank()) dutyGrp.subLeader2Telegram else ""
+
+            val sgWhatsapp = if (sgWhatsapps.isNotEmpty()) sgWhatsapps.joinToString(", ")
+                else if (sgNums.contains(1) && dutyGrp.subLeader1Whatsapp.isNotBlank()) dutyGrp.subLeader1Whatsapp
+                else if (sgNums.contains(2) && dutyGrp.subLeader2Whatsapp.isNotBlank()) dutyGrp.subLeader2Whatsapp else ""
+
+            val sgMembers = grpMembers.filter { it.subGroup in sgNums }
             val sgMemberIds = sgMembers.map { it.id }.toSet()
             val sgRecords = grpRecords.filter { it.memberId in sgMemberIds }
             val sgPresent = sgRecords.count { it.status == AttendanceStatus.PRESENT }
@@ -293,10 +565,12 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
             val sgExcused = sgRecords.count { it.status == AttendanceStatus.EXCUSED }
             val sgTotalConsidered = (sgPresent + sgAbsent + sgExcused).coerceAtLeast(sgMembers.size)
             val sgRate = if (sgTotalConsidered > 0) (sgPresent.toFloat() / sgTotalConsidered) * 100f else 0f
+            val sgExcusedRate = if (sgTotalConsidered > 0) (sgExcused.toFloat() / sgTotalConsidered) * 100f else 0f
 
             DutyGroupAttendanceSummary(
                 dutyGroup = dutyGrp,
-                dutySubGroup = sgNum,
+                dutySubGroup = sgNums.firstOrNull() ?: 1,
+                dutySubGroupList = sgNums,
                 dutySubGroupName = subName,
                 dutySubGroupLeader = sgLeader,
                 dutySubGroupContact = sgContact,
@@ -307,6 +581,7 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
                 subGroupAbsentCount = sgAbsent,
                 subGroupExcusedCount = sgExcused,
                 subGroupAttendanceRate = sgRate,
+                subGroupExcusedRate = sgExcusedRate,
                 totalMembers = grpMembers.size,
                 isSubmitted = isSubmitted,
                 presentCount = presentCount,
@@ -686,6 +961,18 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
                 note = note
             )
             Toast.makeText(getApplication(), strings.savedSuccess, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun unmarkAttendanceStatus(memberId: Long) {
+        val existingRecord = currentAttendanceMap.value[memberId]
+        if (isRecordLocked(existingRecord)) {
+            Toast.makeText(getApplication(), strings.editLockedPastDate, Toast.LENGTH_LONG).show()
+            return
+        }
+        viewModelScope.launch {
+            repository.deleteAttendanceRecord(memberId, _selectedDate.value)
+            Toast.makeText(getApplication(), "يوقلىما قىلىنمىغان ھالەتكە ئەسلىگە قايتۇرۇلدى", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1595,6 +1882,104 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    // Supabase Cloud Sync & Backup State
+    private val _supabaseStatus = MutableStateFlow<SupabaseConnectionStatus?>(null)
+    val supabaseStatus: StateFlow<SupabaseConnectionStatus?> = _supabaseStatus.asStateFlow()
+
+    private val _isSupabaseSyncing = MutableStateFlow(false)
+    val isSupabaseSyncing: StateFlow<Boolean> = _isSupabaseSyncing.asStateFlow()
+
+    private val _lastSyncResult = MutableStateFlow<SupabaseSyncResult?>(null)
+    val lastSyncResult: StateFlow<SupabaseSyncResult?> = _lastSyncResult.asStateFlow()
+
+    private val _isAutoSyncEnabled = MutableStateFlow(appPrefs.getBoolean("supabase_auto_sync", false))
+    val isAutoSyncEnabled: StateFlow<Boolean> = _isAutoSyncEnabled.asStateFlow()
+
+    fun toggleAutoSync(enabled: Boolean = !_isAutoSyncEnabled.value) {
+        _isAutoSyncEnabled.value = enabled
+        appPrefs.edit().putBoolean("supabase_auto_sync", enabled).apply()
+    }
+
+    fun testSupabaseConnection(onResult: (SupabaseConnectionStatus) -> Unit = {}) {
+        viewModelScope.launch {
+            _isSupabaseSyncing.value = true
+            val status = SupabaseSyncService.testConnection()
+            _supabaseStatus.value = status
+            _isSupabaseSyncing.value = false
+            onResult(status)
+        }
+    }
+
+    fun uploadAllToSupabase(
+        context: Context? = null,
+        onComplete: (SupabaseSyncResult) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            _isSupabaseSyncing.value = true
+            val res = SupabaseSyncService.uploadAllData(
+                groups = groups.value,
+                users = users.value,
+                members = allMembers.value,
+                attendance = allAttendance.value,
+                equipment = allEquipment.value,
+                updates = allDailyUpdates.value,
+                contacts = allExecutiveContacts.value,
+                receipts = allNoticeReceipts.value
+            )
+            _lastSyncResult.value = res
+            _isSupabaseSyncing.value = false
+            if (context != null) {
+                val toastMsg = if (res.isSuccess) {
+                    "بارلىق مەلۇماتلار Supabase كە مۇۋەپپەقىيەتلىك يۈكلەندى!"
+                } else {
+                    res.message
+                }
+                Toast.makeText(context, toastMsg, Toast.LENGTH_LONG).show()
+            }
+            onComplete(res)
+        }
+    }
+
+    fun pullAllFromSupabase(
+        context: Context? = null,
+        onComplete: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        viewModelScope.launch {
+            _isSupabaseSyncing.value = true
+            val result = SupabaseSyncService.pullAllData()
+            _isSupabaseSyncing.value = false
+            result.onSuccess { data ->
+                val totalPulled = data.groups.size + data.users.size + data.members.size +
+                        data.attendance.size + data.equipment.size + data.updates.size +
+                        data.contacts.size + data.receipts.size
+                if (totalPulled > 0) {
+                    repository.restoreFromSupabaseData(data)
+                    val msg = "Supabase تىن $totalPulled تۈرلۈك مەلۇمات مۇۋەپپەقىيەتلىك ئەسلىگە كەلتۈرۈلدى!"
+                    if (context != null) {
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    }
+                    onComplete(true, msg)
+                } else {
+                    val msg = "Supabase تىن ھېچقانداق سانلىق مەلۇمات تېپىلمىدى (جەدۋەللەر بوش)."
+                    if (context != null) {
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    }
+                    onComplete(false, msg)
+                }
+            }.onFailure { ex ->
+                val errorMsg = "Supabase تىن چۈشۈرۈش مەغلۇپ بولدى: ${ex.localizedMessage ?: "نامەلۇم خاتالىق"}"
+                if (context != null) {
+                    Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                }
+                onComplete(false, errorMsg)
+            }
+        }
+    }
+
+    fun getSupabaseSqlSchema(): String {
+        return SupabaseSyncService.generateSupabaseSqlSchema()
+    }
+
     fun resetDemoData() {
         viewModelScope.launch {
             repository.resetDatabase()
@@ -1605,6 +1990,7 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
 data class DutyGroupAttendanceSummary(
     val dutyGroup: GroupEntity? = null,
     val dutySubGroup: Int = 1,
+    val dutySubGroupList: List<Int> = listOf(1),
     val dutySubGroupName: String = "",
     val dutySubGroupLeader: String = "",
     val dutySubGroupContact: String = "",
@@ -1615,12 +2001,14 @@ data class DutyGroupAttendanceSummary(
     val subGroupAbsentCount: Int = 0,
     val subGroupExcusedCount: Int = 0,
     val subGroupAttendanceRate: Float = 0f,
+    val subGroupExcusedRate: Float = 0f,
     val totalMembers: Int = 0,
     val isSubmitted: Boolean = false,
     val presentCount: Int = 0,
     val absentCount: Int = 0,
     val excusedCount: Int = 0,
     val attendanceRate: Float = 0f,
+    val excusedRate: Float = if (totalMembers > 0) (excusedCount.toFloat() / (presentCount + absentCount + excusedCount).coerceAtLeast(totalMembers)) * 100f else 0f,
     val lastSubmittedTime: String? = null,
     val dutyNotes: String = ""
 )

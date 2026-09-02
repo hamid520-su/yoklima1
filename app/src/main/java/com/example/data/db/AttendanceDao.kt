@@ -235,6 +235,91 @@ interface AttendanceDao {
     @Query("DELETE FROM notice_receipts WHERE noticeId = :noticeId")
     suspend fun deleteReceiptsForNotice(noticeId: Long)
 
+    // --- Bayraq 3 Leaders (بايراق مەسئۇلى، ئەركان، ئىدارى) ---
+    @Query("SELECT * FROM group_leaders ORDER BY groupId ASC, roleType ASC")
+    fun getAllGroupLeaders(): Flow<List<com.example.data.model.GroupLeaderEntity>>
+
+    @Query("SELECT * FROM group_leaders WHERE groupId = :groupId ORDER BY roleType ASC")
+    fun getLeadersForGroup(groupId: Long): Flow<List<com.example.data.model.GroupLeaderEntity>>
+
+    @Query("SELECT * FROM group_leaders WHERE groupId = :groupId AND roleType = :roleType LIMIT 1")
+    suspend fun getLeaderByRole(groupId: Long, roleType: String): com.example.data.model.GroupLeaderEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGroupLeader(leader: com.example.data.model.GroupLeaderEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGroupLeadersBatch(leaders: List<com.example.data.model.GroupLeaderEntity>)
+
+    @Update
+    suspend fun updateGroupLeader(leader: com.example.data.model.GroupLeaderEntity)
+
+    @Delete
+    suspend fun deleteGroupLeader(leader: com.example.data.model.GroupLeaderEntity)
+
+    @Query("SELECT COUNT(*) FROM group_leaders")
+    suspend fun getGroupLeadersCount(): Int
+
+    // --- Bayraq 3 Leaders Attendance (بار، يوق، باشقا يەردە خىزمەتتە، ئارام) ---
+    @Query("SELECT * FROM group_leader_attendance ORDER BY date DESC, id DESC")
+    fun getAllGroupLeaderAttendance(): Flow<List<com.example.data.model.GroupLeaderAttendanceEntity>>
+
+    @Query("SELECT * FROM group_leader_attendance WHERE date = :date")
+    fun getGroupLeaderAttendanceByDate(date: String): Flow<List<com.example.data.model.GroupLeaderAttendanceEntity>>
+
+    @Query("SELECT * FROM group_leader_attendance WHERE groupId = :groupId AND date = :date")
+    fun getGroupLeaderAttendance(groupId: Long, date: String): Flow<List<com.example.data.model.GroupLeaderAttendanceEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateGroupLeaderAttendance(record: com.example.data.model.GroupLeaderAttendanceEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGroupLeaderAttendanceBatch(records: List<com.example.data.model.GroupLeaderAttendanceEntity>)
+
+    @Query("DELETE FROM group_leader_attendance WHERE groupId = :groupId AND roleType = :roleType AND date = :date")
+    suspend fun deleteGroupLeaderAttendance(groupId: Long, roleType: String, date: String)
+
+    // --- Sanjaq Leadership (سانجاق مەسئۇلى ۋە نائىب سانجاق) ---
+    @Query("SELECT * FROM sanjaq_leaders ORDER BY groupId ASC, sanjaqNumber ASC")
+    fun getAllSanjaqLeaders(): Flow<List<com.example.data.model.SanjaqLeaderEntity>>
+
+    @Query("SELECT * FROM sanjaq_leaders WHERE groupId = :groupId ORDER BY sanjaqNumber ASC")
+    fun getSanjaqLeadersForGroup(groupId: Long): Flow<List<com.example.data.model.SanjaqLeaderEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSanjaqLeader(leader: com.example.data.model.SanjaqLeaderEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSanjaqLeadersBatch(leaders: List<com.example.data.model.SanjaqLeaderEntity>)
+
+    @Update
+    suspend fun updateSanjaqLeader(leader: com.example.data.model.SanjaqLeaderEntity)
+
+    @Query("DELETE FROM sanjaq_leaders WHERE groupId = :groupId AND sanjaqNumber = :sanjaqNumber")
+    suspend fun deleteSanjaqLeader(groupId: Long, sanjaqNumber: Int)
+
+    @Query("SELECT COUNT(*) FROM sanjaq_leaders")
+    suspend fun getSanjaqLeadersCount(): Int
+
+    // --- Device Sessions & Termination Management ---
+    @Query("SELECT * FROM device_sessions ORDER BY lastActiveTime DESC")
+    fun getAllDeviceSessions(): Flow<List<com.example.data.model.DeviceSessionEntity>>
+
+    @Query("SELECT * FROM device_sessions WHERE deviceId = :deviceId LIMIT 1")
+    suspend fun getDeviceSession(deviceId: String): com.example.data.model.DeviceSessionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateDeviceSession(session: com.example.data.model.DeviceSessionEntity)
+
+    @Query("UPDATE device_sessions SET isBlocked = :isBlocked, blockedReason = :reason WHERE deviceId = :deviceId")
+    suspend fun updateDeviceBlockStatus(deviceId: String, isBlocked: Boolean, reason: String)
+
+    @Query("UPDATE device_sessions SET lastActiveTime = :timestamp, lastLoginUser = :userName WHERE deviceId = :deviceId")
+    suspend fun updateDeviceActiveTime(deviceId: String, timestamp: Long, userName: String)
+
+    @Query("DELETE FROM device_sessions WHERE deviceId = :deviceId")
+    suspend fun deleteDeviceSession(deviceId: String)
+
     @Query("DELETE FROM attendance_records")
     suspend fun clearAllAttendance()
 

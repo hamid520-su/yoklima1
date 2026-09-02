@@ -107,8 +107,35 @@ fun LoginScreen(
     val s = AppStrings.get(language)
     val users by viewModel.users.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
-
     val lastOrbId by viewModel.lastActiveOrbId.collectAsState()
+
+    val isBlocked by viewModel.isCurrentDeviceBlocked.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.checkAndRegisterCurrentDevice()
+    }
+
+    if (isBlocked) {
+        AlertDialog(
+            onDismissRequest = {},
+            containerColor = Color(0xFF1F0606),
+            title = {
+                Text(
+                    text = "⚠️ سىستېما زىيارىتى توختىتىلدى",
+                    color = Color(0xFFFF5252),
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "بۇ تېلېفون ياكى ئۈسكۈنە باش باشقۇرغۇچى تەرىپىدىن چەكلەندى. باشقۇرغۇچى بىلەن ئالاقىلىشىڭ.",
+                    color = Color.White,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {}
+        )
+    }
 
     // Dialog state for clicked sphere
     var selectedTargetSphere by remember { mutableStateOf<TechSphereConfig?>(null) }
@@ -737,30 +764,6 @@ fun LoginScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold
                             )
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Quick 1-tap demo enter button
-                        if (targetUser != null) {
-                            OutlinedButton(
-                                onClick = {
-                                    viewModel.quickLogin(targetUser)
-                                    selectedTargetSphere = null
-                                    isAdminSelected = false
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("quick_enter_button"),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text(
-                                    text = "${s.quickDemoLogin} (${targetUser.displayName})",
-                                    color = accentColor,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                            }
                         }
                     }
                 },

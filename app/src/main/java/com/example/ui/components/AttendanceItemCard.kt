@@ -73,6 +73,7 @@ fun AttendanceItemCard(
     onStatusSelected: (AttendanceStatus) -> Unit,
     onSaveNote: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onClearStatus: (() -> Unit)? = null,
     isLocked: Boolean = false
 ) {
     val s = AppStrings.get(language)
@@ -303,7 +304,13 @@ fun AttendanceItemCard(
                     activeText = Color.White,
                     inactiveBg = PresentGreenContainer.copy(alpha = 0.5f),
                     inactiveText = PresentGreen,
-                    onClick = { onStatusSelected(AttendanceStatus.PRESENT) },
+                    onClick = {
+                        if (currentStatus == AttendanceStatus.PRESENT && onClearStatus != null) {
+                            onClearStatus()
+                        } else {
+                            onStatusSelected(AttendanceStatus.PRESENT)
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 )
 
@@ -315,7 +322,13 @@ fun AttendanceItemCard(
                     activeText = Color.White,
                     inactiveBg = AbsentRedContainer.copy(alpha = 0.5f),
                     inactiveText = AbsentRed,
-                    onClick = { onStatusSelected(AttendanceStatus.ABSENT) },
+                    onClick = {
+                        if (currentStatus == AttendanceStatus.ABSENT && onClearStatus != null) {
+                            onClearStatus()
+                        } else {
+                            onStatusSelected(AttendanceStatus.ABSENT)
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 )
 
@@ -327,7 +340,13 @@ fun AttendanceItemCard(
                     activeText = Color.White,
                     inactiveBg = ExcusedBlueContainer.copy(alpha = 0.5f),
                     inactiveText = ExcusedBlue,
-                    onClick = { onStatusSelected(AttendanceStatus.EXCUSED) },
+                    onClick = {
+                        if (currentStatus == AttendanceStatus.EXCUSED && onClearStatus != null) {
+                            onClearStatus()
+                        } else {
+                            onStatusSelected(AttendanceStatus.EXCUSED)
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }

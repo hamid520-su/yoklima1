@@ -21,6 +21,10 @@ class AttendanceRepository(private val dao: AttendanceDao) {
     val allDailyUpdates: Flow<List<com.example.data.model.DailyUpdateEntity>> = dao.getAllDailyUpdates()
     val allExecutiveContacts: Flow<List<com.example.data.model.ExecutiveContactEntity>> = dao.getAllExecutiveContacts()
     val allNoticeReceipts: Flow<List<com.example.data.model.NoticeReceiptEntity>> = dao.getAllNoticeReceipts()
+    val allGroupLeaders: Flow<List<com.example.data.model.GroupLeaderEntity>> = dao.getAllGroupLeaders()
+    val allGroupLeaderAttendance: Flow<List<com.example.data.model.GroupLeaderAttendanceEntity>> = dao.getAllGroupLeaderAttendance()
+    val allSanjaqLeaders: Flow<List<com.example.data.model.SanjaqLeaderEntity>> = dao.getAllSanjaqLeaders()
+    val allDeviceSessions: Flow<List<com.example.data.model.DeviceSessionEntity>> = dao.getAllDeviceSessions()
 
     fun getReceiptsForNotice(noticeId: Long): Flow<List<com.example.data.model.NoticeReceiptEntity>> =
         dao.getReceiptsForNotice(noticeId)
@@ -106,6 +110,10 @@ class AttendanceRepository(private val dao: AttendanceDao) {
                 timestamp = System.currentTimeMillis()
             )
         )
+    }
+
+    suspend fun deleteAttendanceRecord(memberId: Long, date: String) {
+        dao.deleteAttendanceRecord(memberId, date)
     }
 
     suspend fun markAllPresent(groupId: Long, date: String, members: List<MemberEntity>) {
@@ -405,6 +413,89 @@ class AttendanceRepository(private val dao: AttendanceDao) {
 
     suspend fun deleteExecutiveContactById(id: Long) {
         dao.deleteExecutiveContactById(id)
+    }
+
+    // --- Bayraq 3 Key Leaders Operations ---
+    suspend fun saveOrUpdateGroupLeader(leader: com.example.data.model.GroupLeaderEntity): Long {
+        return dao.insertGroupLeader(leader)
+    }
+
+    suspend fun saveGroupLeaderAttendance(
+        groupId: Long,
+        roleType: String,
+        date: String,
+        status: String,
+        note: String = ""
+    ) {
+        dao.insertOrUpdateGroupLeaderAttendance(
+            com.example.data.model.GroupLeaderAttendanceEntity(
+                groupId = groupId,
+                roleType = roleType,
+                date = date,
+                status = status,
+                note = note,
+                timestamp = System.currentTimeMillis()
+            )
+        )
+    }
+
+    // --- Sanjaq Leadership Operations ---
+    suspend fun saveOrUpdateSanjaqLeader(sanjaq: com.example.data.model.SanjaqLeaderEntity): Long {
+        return dao.insertSanjaqLeader(sanjaq)
+    }
+
+    suspend fun deleteSanjaq(groupId: Long, sanjaqNumber: Int) {
+        dao.deleteSanjaqLeader(groupId, sanjaqNumber)
+    }
+
+    // --- Device Sessions Management ---
+    suspend fun registerOrUpdateDeviceSession(
+        deviceId: String,
+        deviceName: String,
+        osVersion: String,
+        userName: String
+    ) {
+        val existing = dao.getDeviceSession(deviceId)
+        val now = System.currentTimeMillis()
+        if (existing == null) {
+            dao.insertOrUpdateDeviceSession(
+                com.example.data.model.DeviceSessionEntity(
+                    deviceId = deviceId,
+                    deviceName = deviceName,
+                    osVersion = osVersion,
+                    lastLoginUser = userName,
+                    firstSeenTime = now,
+                    lastActiveTime = now,
+                    isBlocked = false
+                )
+            )
+        } else {
+            dao.updateDeviceActiveTime(deviceId, now, userName)
+        }
+    }
+
+    suspend fun setDeviceBlockStatus(deviceId: String, isBlocked: Boolean, reason: String = "") {
+        dao.updateDeviceBlockStatus(deviceId, isBlocked, reason)
+    }
+
+    suspend fun deleteDeviceSession(deviceId: String) {
+        dao.deleteDeviceSession(deviceId)
+    }
+
+    suspend fun isDeviceBlocked(deviceId: String): Boolean {
+        val session = dao.getDeviceSession(deviceId)
+        return session?.isBlocked == true
+    }
+
+    suspend fun restoreFromSupabaseData(data: com.example.data.supabase.SupabasePullData) {
+        if (data.groups.isNotEmpty()) dao.insertGroups(data.groups)
+        if (data.users.isNotEmpty()) dao.insertUsers(data.users)
+        if (data.members.isNotEmpty()) dao.insertMembers(data.members)
+        if (data.attendance.isNotEmpty()) dao.insertAttendanceBatch(data.attendance)
+        if (data.equipment.isNotEmpty()) dao.insertEquipmentBatch(data.equipment)
+        if (data.updates.isNotEmpty()) dao.insertDailyUpdatesBatch(data.updates)
+        if (data.contacts.isNotEmpty()) dao.insertExecutiveContactsBatch(data.contacts)
+        if (data.receipts.isNotEmpty()) dao.insertReceiptsBatch(data.receipts)
     }
 
     suspend fun resetDatabase() {
